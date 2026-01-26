@@ -1,0 +1,61 @@
+use clap::{Parser, Subcommand};
+use std::path::PathBuf;
+
+/// Automated Claude Code task runner
+///
+/// Run with an optional implementation plan:
+///   hydra [PLAN] [OPTIONS]
+///
+/// Examples:
+///   hydra                    Run using prompt only
+///   hydra plan.md            Run with plan injected after prompt
+///   hydra plan.md --max 5    Run with plan, limit to 5 iterations
+#[derive(Parser, Debug)]
+#[command(name = "hydra")]
+#[command(version, about, long_about = None)]
+pub struct Cli {
+    /// Optional path to implementation plan file (injected after prompt)
+    #[arg(value_name = "PLAN")]
+    pub plan: Option<PathBuf>,
+
+    #[command(subcommand)]
+    pub command: Option<Command>,
+
+    /// Maximum number of iterations to run
+    #[arg(short, long, default_value = "10")]
+    pub max: u32,
+
+    /// Preview configuration without executing
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Enable debug output
+    #[arg(short, long)]
+    pub verbose: bool,
+
+    /// Override prompt file path
+    #[arg(short, long)]
+    pub prompt: Option<PathBuf>,
+
+    /// Install hydra to ~/.local/bin
+    #[arg(long)]
+    pub install: bool,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Command {
+    /// Initialize .hydra/ directory in current project
+    Init,
+}
+
+impl Cli {
+    /// Check if this is an init command
+    pub fn is_init(&self) -> bool {
+        matches!(self.command, Some(Command::Init))
+    }
+
+    /// Check if this is an install command
+    pub fn is_install(&self) -> bool {
+        self.install
+    }
+}

@@ -6,10 +6,16 @@ Automated Claude Code task runner. Executes tasks from implementation plans in a
 
 ### Running Tasks
 - Users can run `hydra` to start automated task execution
+- Users can run `hydra <plan>` to run with an implementation plan injected
 - Users can specify maximum iterations with `--max N`
 - Users can preview configuration with `--dry-run` without executing
 - Users can enable debug output with `--verbose`
 - Users can override the prompt file with `--prompt <path>`
+
+### Implementation Plan
+- Users can provide an optional first positional argument as a path to an implementation plan
+- When provided, the plan content is appended to the prompt with a `## Implementation Plan` header
+- If the plan file path is provided but the file doesn't exist, hydra exits with a helpful error
 
 ### Project Setup
 - Users can run `hydra init` to create a `.hydra/` directory in their project
@@ -31,11 +37,36 @@ Automated Claude Code task runner. Executes tasks from implementation plans in a
 
 ## Constraints
 
+### CLI Signature
+```
+hydra [PLAN] [OPTIONS]      # Run task loop (plan is optional)
+hydra init                  # Initialize .hydra/ directory
+hydra --install             # Install to ~/.local/bin
+```
+
+### Options
+- `--prompt <path>`, `-p`: Override system prompt file
+- `--max <N>`, `-m`: Maximum iterations (default: 10)
+- `--dry-run`: Preview configuration without executing
+- `--verbose`, `-v`: Enable debug output
+
 ### Prompt Resolution Priority
 1. `--prompt <path>` (CLI override, highest)
 2. `./.hydra/prompt.md` (project-specific)
 3. `./prompt.md` (current directory)
 4. `~/.hydra/default-prompt.md` (global fallback, lowest)
+
+### Plan Injection
+When a plan file is provided as the first positional argument:
+1. Read plan file content
+2. Append to resolved prompt with delimiter:
+```
+[prompt content]
+
+## Implementation Plan
+
+[plan file content]
+```
 
 ### Stop Signals
 - Claude must output `###TASK_COMPLETE###` when one task is done but more remain
@@ -45,7 +76,7 @@ Automated Claude Code task runner. Executes tasks from implementation plans in a
 ### Exit Codes
 - `0`: Success (all tasks complete, max iterations reached, or dry-run)
 - `1`: Stopped (user interrupt, SIGTERM, or stop file)
-- `2`: Error (no prompt file found at any priority level)
+- `2`: Error (no prompt file found, or plan file not found)
 
 ### Configuration Defaults
 - Max iterations: 10
