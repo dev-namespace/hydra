@@ -120,15 +120,15 @@ fn read_prompt_file(path: &PathBuf) -> Result<String> {
         .map_err(|e| HydraError::io(format!("reading prompt file {}", path.display()), e))
 }
 
-/// Inject plan content into prompt content
+/// Inject plan path reference into prompt content
 ///
-/// Appends the plan content to the prompt with a `## Implementation Plan` header.
+/// Appends a reference to the plan file path to the prompt.
 /// Returns the combined content.
-pub fn inject_plan(prompt_content: &str, plan_content: &str) -> String {
+pub fn inject_plan_path(prompt_content: &str, plan_path: &std::path::Path) -> String {
     format!(
-        "{}\n\n## Implementation Plan\n\n{}",
+        "{}\n\n## Implementation Plan\n\nThe implementation plan is located at: {}",
         prompt_content.trim_end(),
-        plan_content
+        plan_path.display()
     )
 }
 
@@ -289,54 +289,45 @@ mod tests {
     }
 
     #[test]
-    fn test_inject_plan_basic() {
+    fn test_inject_plan_path_basic() {
+        use std::path::Path;
         let prompt = "# My Prompt\n\nDo the thing.";
-        let plan = "## Tasks\n\n- [ ] Task 1\n- [ ] Task 2";
+        let plan_path = Path::new("/path/to/plan.md");
 
-        let result = inject_plan(prompt, plan);
+        let result = inject_plan_path(prompt, plan_path);
 
         assert!(result.starts_with("# My Prompt"));
         assert!(result.contains("## Implementation Plan"));
-        assert!(result.contains("## Tasks"));
-        assert!(result.contains("- [ ] Task 1"));
+        assert!(result.contains("/path/to/plan.md"));
     }
 
     #[test]
-    fn test_inject_plan_format() {
+    fn test_inject_plan_path_format() {
+        use std::path::Path;
         let prompt = "Prompt content";
-        let plan = "Plan content";
+        let plan_path = Path::new("plan.md");
 
-        let result = inject_plan(prompt, plan);
+        let result = inject_plan_path(prompt, plan_path);
 
-        // Verify the exact format matches the spec
+        // Verify the exact format
         assert_eq!(
             result,
-            "Prompt content\n\n## Implementation Plan\n\nPlan content"
+            "Prompt content\n\n## Implementation Plan\n\nThe implementation plan is located at: plan.md"
         );
     }
 
     #[test]
-    fn test_inject_plan_trims_trailing_whitespace() {
+    fn test_inject_plan_path_trims_trailing_whitespace() {
+        use std::path::Path;
         let prompt = "Prompt content\n\n\n";
-        let plan = "Plan content";
+        let plan_path = Path::new("plan.md");
 
-        let result = inject_plan(prompt, plan);
+        let result = inject_plan_path(prompt, plan_path);
 
         // Should trim trailing whitespace from prompt before adding header
         assert_eq!(
             result,
-            "Prompt content\n\n## Implementation Plan\n\nPlan content"
+            "Prompt content\n\n## Implementation Plan\n\nThe implementation plan is located at: plan.md"
         );
-    }
-
-    #[test]
-    fn test_inject_plan_preserves_plan_content() {
-        let prompt = "Prompt";
-        let plan = "- [ ] Task 1\n- [x] Task 2\n- [ ] Task 3\n";
-
-        let result = inject_plan(prompt, plan);
-
-        // Plan content should be preserved exactly
-        assert!(result.ends_with("- [ ] Task 1\n- [x] Task 2\n- [ ] Task 3\n"));
     }
 }

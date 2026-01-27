@@ -60,14 +60,14 @@ hydra --install             # Install to ~/.local/bin
 
 ### Plan Injection
 When a plan file is provided as the first positional argument:
-1. Read plan file content
-2. Append to resolved prompt with delimiter:
+1. Verify the plan file exists (exit with error if not)
+2. Append a reference to the plan path in the prompt:
 ```
 [prompt content]
 
 ## Implementation Plan
 
-[plan file content]
+The implementation plan is located at: [plan file path]
 ```
 
 ### Stop Signals

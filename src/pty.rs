@@ -16,6 +16,59 @@ use std::time::Duration;
 const TASK_COMPLETE_SIGNAL: &str = "###TASK_COMPLETE###";
 const ALL_COMPLETE_SIGNAL: &str = "###ALL_TASKS_COMPLETE###";
 
+/// Strip ANSI escape sequences from a string
+/// This is necessary because PTY output contains color codes, cursor movements, etc.
+fn strip_ansi_escapes(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            // Start of escape sequence
+            match chars.peek() {
+                Some('[') => {
+                    // CSI sequence: ESC [ ... final_byte
+                    chars.next(); // consume '['
+                    // Consume parameter bytes (0x30-0x3F) and intermediate bytes (0x20-0x2F)
+                    // until we hit the final byte (0x40-0x7E)
+                    while let Some(&param) = chars.peek() {
+                        if param >= '@' && param <= '~' {
+                            chars.next(); // consume final byte
+                            break;
+                        }
+                        chars.next();
+                    }
+                }
+                Some(']') => {
+                    // OSC sequence: ESC ] ... (BEL or ESC \)
+                    chars.next(); // consume ']'
+                    while let Some(c) = chars.next() {
+                        if c == '\x07' {
+                            break;
+                        } // BEL
+                        if c == '\x1b' {
+                            if chars.peek() == Some(&'\\') {
+                                chars.next();
+                                break;
+                            }
+                        }
+                    }
+                }
+                Some(&next) if next >= '@' && next <= '_' => {
+                    // Fe escape sequence (ESC followed by 0x40-0x5F)
+                    chars.next();
+                }
+                _ => {
+                    // Unknown escape or lone ESC, skip it
+                }
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
 /// Ctrl+C handling state
 const CTRL_C_NONE: u8 = 0;
 const CTRL_C_FIRST: u8 = 1;
@@ -82,6 +135,11 @@ impl PtyManager {
         let mut cmd = CommandBuilder::new("claude");
         cmd.arg("--dangerously-skip-permissions");
         cmd.arg(prompt_path);
+
+        // Set working directory to current directory
+        let cwd = std::env::current_dir()
+            .map_err(|e| HydraError::io("getting current directory", e))?;
+        cmd.cwd(cwd);
 
         // Spawn the command in the PTY
         let child = self
@@ -243,20 +301,23 @@ impl PtyManager {
                     // Accumulate for signal detection
                     if let Ok(s) = std::str::from_utf8(&data) {
                         signal_accumulator.push_str(s);
-                        // Keep only last 1KB to avoid unbounded growth
-                        if signal_accumulator.len() > 1024 {
-                            let target = signal_accumulator.len() - 512;
-                            // Find the nearest char boundary at or before target
-                            let drain_to = (0..=target)
-                                .rev()
-                                .find(|&i| signal_accumulator.is_char_boundary(i))
-                                .unwrap_or(0);
-                            signal_accumulator.drain(..drain_to);
-                        }
                     }
 
-                    // Check for stop signals
+                    // Check for stop signals BEFORE truncation to avoid losing the signal
+                    // if there's a lot of output after it in the same chunk
                     let signal_result = self.check_for_signals(&signal_accumulator);
+
+                    // Now truncate to avoid unbounded growth (keep last 8KB for safety)
+                    // Claude's TUI can output a lot of formatting after the signal
+                    if signal_accumulator.len() > 8192 {
+                        let target = signal_accumulator.len() - 4096;
+                        // Find the nearest char boundary at or before target
+                        let drain_to = (0..=target)
+                            .rev()
+                            .find(|&i| signal_accumulator.is_char_boundary(i))
+                            .unwrap_or(0);
+                        signal_accumulator.drain(..drain_to);
+                    }
                     if signal_result != PtyResult::NoSignal {
                         if verbose {
                             eprintln!("[hydra:debug] Signal detected, terminating Claude");
@@ -354,11 +415,16 @@ impl PtyManager {
 
     /// Check accumulated output for stop signals
     fn check_for_signals(&self, accumulator: &str) -> PtyResult {
+        // Strip ANSI escape sequences before checking for signals
+        // PTY output contains color codes and other escape sequences that
+        // can be interspersed in the signal text
+        let clean = strip_ansi_escapes(accumulator);
+
         // Check for ALL_COMPLETE first (more specific)
-        if accumulator.contains(ALL_COMPLETE_SIGNAL) {
+        if clean.contains(ALL_COMPLETE_SIGNAL) {
             return PtyResult::AllComplete;
         }
-        if accumulator.contains(TASK_COMPLETE_SIGNAL) {
+        if clean.contains(TASK_COMPLETE_SIGNAL) {
             return PtyResult::TaskComplete;
         }
         PtyResult::NoSignal
@@ -516,6 +582,66 @@ mod tests {
         assert_eq!(
             manager.check_for_signals("no signals here"),
             PtyResult::NoSignal
+        );
+    }
+
+    #[test]
+    fn test_strip_ansi_escapes() {
+        // Plain text should pass through unchanged
+        assert_eq!(strip_ansi_escapes("hello world"), "hello world");
+
+        // CSI sequences (colors, cursor movement) should be stripped
+        assert_eq!(strip_ansi_escapes("\x1b[32mgreen\x1b[0m"), "green");
+        assert_eq!(strip_ansi_escapes("\x1b[1;31mbold red\x1b[0m"), "bold red");
+
+        // Multiple sequences
+        assert_eq!(
+            strip_ansi_escapes("\x1b[32m###\x1b[0mTASK_COMPLETE\x1b[32m###\x1b[0m"),
+            "###TASK_COMPLETE###"
+        );
+
+        // OSC sequences (title setting, etc.)
+        assert_eq!(strip_ansi_escapes("\x1b]0;title\x07text"), "text");
+
+        // Cursor movement
+        assert_eq!(strip_ansi_escapes("\x1b[Hstart\x1b[10;20H"), "start");
+    }
+
+    #[test]
+    fn test_signal_detection_with_ansi_codes() {
+        let manager = PtyManager {
+            pty_pair: {
+                let pty_system = native_pty_system();
+                pty_system
+                    .openpty(PtySize {
+                        rows: 24,
+                        cols: 80,
+                        pixel_width: 0,
+                        pixel_height: 0,
+                    })
+                    .unwrap()
+            },
+            should_stop: Arc::new(AtomicBool::new(false)),
+            ctrl_c_state: Arc::new(AtomicU8::new(CTRL_C_NONE)),
+            child_pid: None,
+        };
+
+        // Signal with color codes around it
+        assert_eq!(
+            manager.check_for_signals("\x1b[32m###TASK_COMPLETE###\x1b[0m"),
+            PtyResult::TaskComplete
+        );
+
+        // Signal with color codes interspersed
+        assert_eq!(
+            manager.check_for_signals("output\x1b[1m###ALL_TASKS_COMPLETE###\x1b[0m\n"),
+            PtyResult::AllComplete
+        );
+
+        // Mixed content with cursor movements
+        assert_eq!(
+            manager.check_for_signals("\x1b[H\x1b[2JDone!\n\x1b[32m###TASK_COMPLETE###\x1b[0m"),
+            PtyResult::TaskComplete
         );
     }
 }

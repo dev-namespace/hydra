@@ -1,7 +1,6 @@
 mod cli;
 mod config;
 mod error;
-mod plan;
 mod prompt;
 mod pty;
 mod runner;
@@ -11,8 +10,7 @@ use clap::Parser;
 use cli::Cli;
 use config::Config;
 use error::{HydraError, Result, EXIT_SUCCESS};
-use plan::read_plan_file;
-use prompt::{inject_plan, resolve_prompt};
+use prompt::{inject_plan_path, resolve_prompt};
 use runner::{RunResult, Runner};
 use std::fs;
 use std::io::{BufRead, Write};
@@ -68,17 +66,19 @@ fn run(cli: Cli) -> Result<()> {
             eprintln!("Prompt path: {}", resolved.path.display());
         }
 
-        // If a plan file is provided, read and inject it into the prompt
+        // If a plan file is provided, inject a reference to it in the prompt
         if let Some(ref plan_path) = cli.plan {
-            let plan_content = read_plan_file(plan_path)?;
+            // Verify plan file exists
+            if !plan_path.exists() {
+                return Err(HydraError::PlanNotFound(plan_path.clone()));
+            }
 
             if config.verbose {
                 eprintln!("Plan file: {}", plan_path.display());
-                eprintln!("Plan content length: {} bytes", plan_content.len());
             }
 
-            // Inject plan content into prompt
-            resolved.content = inject_plan(&resolved.content, &plan_content);
+            // Inject plan path reference into prompt
+            resolved.content = inject_plan_path(&resolved.content, plan_path);
         }
 
         if cli.dry_run {
@@ -156,13 +156,12 @@ const BANNER: &str = r#"
 "#;
 
 /// Template content for project-specific prompt.md
-const PROJECT_PROMPT_TEMPLATE: &str = r#"# Hydra Project Prompt
-
-Replace this with your task instructions for Claude Code.
-
-## Example
-
-study plans/my-implementation.md
+const PROJECT_PROMPT_TEMPLATE: &str = r#"- throughly study ./specs/index.md
+- study the provided implementation plan .md file
+- pick the highest leverage unchecked task
+- complete the task
+- write an unbiased unit test to verify
+- make sure you check finished tasks in the plan
 "#;
 
 /// Initialize .hydra/ directory structure in current project
