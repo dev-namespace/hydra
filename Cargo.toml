@@ -16,3 +16,5 @@ tempfile = "3"
 thiserror = "2"
 ctrlc = { version = "3", features = ["termination"] }
 nix = { version = "0.29", features = ["signal", "process"] }
+portable-pty = "0.8"
+crossterm = "0.28"

@@ -28,7 +28,9 @@ Automated Claude Code task runner. Executes tasks from implementation plans in a
 - Users can override any prompt with the `--prompt` flag
 
 ### Stopping Execution
-- Users can press Ctrl+C (SIGINT) for immediate termination
+- Users can press Ctrl+C once for graceful termination (kills Claude, finishes iteration)
+- Users can press Ctrl+C twice for immediate force quit
+- Users can press Ctrl+D as equivalent to Ctrl+C
 - Users can send SIGTERM for graceful shutdown after current iteration
 - Users can create `.hydra-stop` file to stop after current iteration
 
@@ -102,9 +104,10 @@ When a plan file is provided as the first positional argument:
 ## Architecture
 
 ### Components
-- **Rust CLI wrapper**: Argument parsing (clap), config management (TOML), prompt resolution
-- **Embedded bash script**: PTY allocation via `script(1)` for Claude TUI streaming
-- **Signal handling**: SIGINT for immediate stop, SIGTERM for graceful shutdown
+- **Rust CLI**: Argument parsing (clap), config management (TOML), prompt resolution
+- **Native PTY manager**: Uses `portable-pty` crate for cross-platform PTY allocation
+- **Terminal I/O**: Uses `crossterm` for raw mode input handling and keyboard events
+- **Signal handling**: SIGINT/SIGTERM with child process group management
 
 ### Config File (`~/.hydra/config.toml`)
 ```toml
@@ -117,6 +120,16 @@ stop_file = ".hydra-stop"
 
 None yet.
 
+### Interactive Mode
+- Users can type while Claude is running (input forwarded to PTY)
+- Users can use arrow keys, function keys, and special keys
+- Users see Claude's TUI output streamed in real-time
+
 ## Source
 
-- [hydra.sh](../hydra.sh) - Original bash implementation (reference)
+- [src/main.rs](../src/main.rs) - Entry point and CLI setup
+- [src/runner.rs](../src/runner.rs) - Main iteration loop
+- [src/pty.rs](../src/pty.rs) - PTY manager for Claude execution
+- [src/signal.rs](../src/signal.rs) - Signal handling and child process management
+- [src/config.rs](../src/config.rs) - Configuration loading
+- [src/prompt.rs](../src/prompt.rs) - Prompt resolution

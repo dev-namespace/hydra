@@ -3,6 +3,7 @@ mod config;
 mod error;
 mod plan;
 mod prompt;
+mod pty;
 mod runner;
 mod signal;
 

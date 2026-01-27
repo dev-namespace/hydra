@@ -1,24 +1,14 @@
 use crate::config::Config;
 use crate::error::{HydraError, Result};
 use crate::prompt::ResolvedPrompt;
+use crate::pty::{PtyManager, PtyResult};
 use chrono::Local;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::thread;
-use std::time::Duration;
 use tempfile::NamedTempFile;
-
-/// Embedded bash script for PTY allocation
-/// This script uses script(1) to allocate a real PTY so Claude renders its TUI
-const RUNNER_SCRIPT: &str = include_str!("scripts/runner.sh");
-
-/// Stop signals that Claude outputs to indicate task completion
-const TASK_COMPLETE_SIGNAL: &str = "###TASK_COMPLETE###";
-const ALL_COMPLETE_SIGNAL: &str = "###ALL_TASKS_COMPLETE###";
 
 /// Iteration instructions prepended to the prompt
 const ITERATION_INSTRUCTIONS: &str = r#"╔══════════════════════════════════════════════════════════════════════════════╗
@@ -166,9 +156,7 @@ impl SessionLogger {
 pub struct Runner {
     config: Config,
     prompt: ResolvedPrompt,
-    script_file: Option<NamedTempFile>,
     should_stop: Arc<AtomicBool>,
-    child_process: Option<Child>,
     logger: Option<SessionLogger>,
 }
 
@@ -187,9 +175,7 @@ impl Runner {
         Self {
             config,
             prompt,
-            script_file: None,
             should_stop: Arc::new(AtomicBool::new(false)),
-            child_process: None,
             logger,
         }
     }
@@ -207,44 +193,6 @@ impl Runner {
     /// Request the runner to stop after current iteration
     pub fn request_stop(&self) {
         self.should_stop.store(true, Ordering::SeqCst);
-    }
-
-    /// Kill the current child process immediately (for SIGINT)
-    pub fn kill_child(&mut self) {
-        if let Some(ref mut child) = self.child_process {
-            let _ = child.kill();
-        }
-    }
-
-    /// Extract the embedded runner script to a temp file
-    fn ensure_script_file(&mut self) -> Result<PathBuf> {
-        if self.script_file.is_none() {
-            let mut temp = NamedTempFile::new()
-                .map_err(|e| HydraError::io("creating temp script file", e))?;
-
-            use std::io::Write;
-            temp.write_all(RUNNER_SCRIPT.as_bytes())
-                .map_err(|e| HydraError::io("writing runner script", e))?;
-
-            // Make executable
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let mut perms = temp
-                    .as_file()
-                    .metadata()
-                    .map_err(|e| HydraError::io("getting script metadata", e))?
-                    .permissions();
-                perms.set_mode(0o755);
-                temp.as_file()
-                    .set_permissions(perms)
-                    .map_err(|e| HydraError::io("setting script permissions", e))?;
-            }
-
-            self.script_file = Some(temp);
-        }
-
-        Ok(self.script_file.as_ref().unwrap().path().to_path_buf())
     }
 
     /// Create a combined prompt file with iteration instructions
@@ -288,29 +236,21 @@ impl Runner {
         let output_file =
             NamedTempFile::new().map_err(|e| HydraError::io("creating output file", e))?;
 
-        // Get the runner script path
-        let script_path = self.ensure_script_file()?;
+        // Create PTY manager and spawn Claude
+        let mut pty = PtyManager::new(Arc::clone(&self.should_stop))?;
+        pty.spawn_claude(prompt_file.path())?;
 
-        // Spawn the runner script
-        let child = Command::new("bash")
-            .arg(&script_path)
-            .arg(prompt_file.path())
-            .arg(output_file.path())
-            .stdin(Stdio::null())
-            .spawn()
-            .map_err(HydraError::SpawnFailed)?;
-
-        self.child_process = Some(child);
-
-        // Monitor the output file for stop signals
+        // Run the I/O loop (handles stdin, stdout, and signal detection)
         let output_path = output_file.path().to_path_buf();
-        let result = self.monitor_for_signals(&output_path);
+        let pty_result = pty.run_io_loop(&output_path, self.config.verbose)?;
 
-        // Wait for child to finish
-        if let Some(ref mut child) = self.child_process {
-            let _ = child.wait();
-        }
-        self.child_process = None;
+        // Convert PtyResult to IterationResult
+        let result = match pty_result {
+            PtyResult::TaskComplete => IterationResult::TaskComplete,
+            PtyResult::AllComplete => IterationResult::AllComplete,
+            PtyResult::NoSignal => IterationResult::NoSignal,
+            PtyResult::Terminated => IterationResult::Terminated,
+        };
 
         // Copy iteration output to session log
         if let Some(ref mut logger) = self.logger {
@@ -322,81 +262,6 @@ impl Runner {
         println!("[hydra] Run #{} complete", iteration);
 
         Ok(result)
-    }
-
-    /// Monitor the output file for stop signals
-    fn monitor_for_signals(&mut self, output_path: &PathBuf) -> IterationResult {
-        let check_interval = Duration::from_millis(100);
-
-        loop {
-            // Check if we should stop (SIGTERM or stop file)
-            if self.should_stop.load(Ordering::SeqCst) {
-                if let Some(ref mut child) = self.child_process {
-                    let _ = child.kill();
-                }
-                return IterationResult::Terminated;
-            }
-
-            // Check output for signals first (doesn't need mutable borrow)
-            let signal_result = Self::check_output_for_signals_static(output_path);
-
-            // Check if child is still running
-            if let Some(ref mut child) = self.child_process {
-                match child.try_wait() {
-                    Ok(Some(_status)) => {
-                        // Child exited, return whatever signal we found (or NoSignal)
-                        return signal_result;
-                    }
-                    Ok(None) => {
-                        // Still running, check if we found a signal
-                        if signal_result != IterationResult::NoSignal {
-                            // Signal found, terminate the process
-                            if self.config.verbose {
-                                eprintln!("[hydra:debug] Signal detected, terminating Claude");
-                            }
-                            println!();
-                            match signal_result {
-                                IterationResult::AllComplete => {
-                                    println!("[hydra] All tasks complete signal detected, terminating Claude process...");
-                                }
-                                IterationResult::TaskComplete => {
-                                    println!("[hydra] Task complete signal detected, terminating Claude process...");
-                                }
-                                _ => {}
-                            }
-                            let _ = child.kill();
-                            return signal_result;
-                        }
-                    }
-                    Err(_) => {
-                        return IterationResult::NoSignal;
-                    }
-                }
-            } else {
-                return IterationResult::NoSignal;
-            }
-
-            thread::sleep(check_interval);
-        }
-    }
-
-    /// Check the output file for stop signals (static version to avoid borrow issues)
-    fn check_output_for_signals_static(output_path: &PathBuf) -> IterationResult {
-        if let Ok(content) = fs::read_to_string(output_path) {
-            // Check for ALL_COMPLETE first (more specific)
-            if content.contains(ALL_COMPLETE_SIGNAL) {
-                return IterationResult::AllComplete;
-            }
-            if content.contains(TASK_COMPLETE_SIGNAL) {
-                return IterationResult::TaskComplete;
-            }
-        }
-        IterationResult::NoSignal
-    }
-
-    /// Check the output file for stop signals
-    fn check_output_for_signals(&self, output_path: &PathBuf) -> IterationResult {
-        Self::check_output_for_signals_static(output_path)
     }
 
     /// Run the main loop
@@ -536,56 +401,6 @@ mod tests {
     fn test_iteration_instructions_contains_signals() {
         assert!(ITERATION_INSTRUCTIONS.contains("###TASK_COMPLETE###"));
         assert!(ITERATION_INSTRUCTIONS.contains("###ALL_TASKS_COMPLETE###"));
-    }
-
-    #[test]
-    fn test_check_output_for_signals() {
-        let config = test_config();
-        let prompt = test_prompt();
-        let runner = Runner::new(config, prompt);
-
-        // Create temp file with task complete signal
-        let temp_dir = tempfile::tempdir().unwrap();
-        let output_path = temp_dir.path().join("output.txt");
-
-        fs::write(&output_path, "some output\n###TASK_COMPLETE###\nmore output").unwrap();
-        assert_eq!(
-            runner.check_output_for_signals(&output_path),
-            IterationResult::TaskComplete
-        );
-
-        fs::write(&output_path, "output\n###ALL_TASKS_COMPLETE###\n").unwrap();
-        assert_eq!(
-            runner.check_output_for_signals(&output_path),
-            IterationResult::AllComplete
-        );
-
-        fs::write(&output_path, "no signals here").unwrap();
-        assert_eq!(
-            runner.check_output_for_signals(&output_path),
-            IterationResult::NoSignal
-        );
-    }
-
-    #[test]
-    fn test_all_complete_takes_priority() {
-        let config = test_config();
-        let prompt = test_prompt();
-        let runner = Runner::new(config, prompt);
-
-        let temp_dir = tempfile::tempdir().unwrap();
-        let output_path = temp_dir.path().join("output.txt");
-
-        // Both signals present, ALL_COMPLETE should take priority
-        fs::write(
-            &output_path,
-            "###TASK_COMPLETE###\n###ALL_TASKS_COMPLETE###",
-        )
-        .unwrap();
-        assert_eq!(
-            runner.check_output_for_signals(&output_path),
-            IterationResult::AllComplete
-        );
     }
 
     #[test]
