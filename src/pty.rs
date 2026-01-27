@@ -16,57 +16,25 @@ use std::time::Duration;
 const TASK_COMPLETE_SIGNAL: &str = "###TASK_COMPLETE###";
 const ALL_COMPLETE_SIGNAL: &str = "###ALL_TASKS_COMPLETE###";
 
-/// Strip ANSI escape sequences from a string
-/// This is necessary because PTY output contains color codes, cursor movements, etc.
-fn strip_ansi_escapes(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
+/// ASCII byte patterns for raw signal detection (fallback when UTF-8 fails)
+const TASK_COMPLETE_BYTES: &[u8] = b"###TASK_COMPLETE###";
+const ALL_COMPLETE_BYTES: &[u8] = b"###ALL_TASKS_COMPLETE###";
 
-    while let Some(c) = chars.next() {
-        if c == '\x1b' {
-            // Start of escape sequence
-            match chars.peek() {
-                Some('[') => {
-                    // CSI sequence: ESC [ ... final_byte
-                    chars.next(); // consume '['
-                    // Consume parameter bytes (0x30-0x3F) and intermediate bytes (0x20-0x2F)
-                    // until we hit the final byte (0x40-0x7E)
-                    while let Some(&param) = chars.peek() {
-                        if param >= '@' && param <= '~' {
-                            chars.next(); // consume final byte
-                            break;
-                        }
-                        chars.next();
-                    }
-                }
-                Some(']') => {
-                    // OSC sequence: ESC ] ... (BEL or ESC \)
-                    chars.next(); // consume ']'
-                    while let Some(c) = chars.next() {
-                        if c == '\x07' {
-                            break;
-                        } // BEL
-                        if c == '\x1b' {
-                            if chars.peek() == Some(&'\\') {
-                                chars.next();
-                                break;
-                            }
-                        }
-                    }
-                }
-                Some(&next) if next >= '@' && next <= '_' => {
-                    // Fe escape sequence (ESC followed by 0x40-0x5F)
-                    chars.next();
-                }
-                _ => {
-                    // Unknown escape or lone ESC, skip it
-                }
-            }
-        } else {
-            result.push(c);
-        }
-    }
-    result
+/// Buffer retention size after truncation (16KB to handle split signals)
+const BUFFER_RETENTION_SIZE: usize = 16384;
+/// Threshold for triggering truncation (32KB)
+const BUFFER_TRUNCATION_THRESHOLD: usize = 32768;
+
+/// Strip ANSI escape sequences from bytes using the strip-ansi-escapes crate
+/// Returns a String using lossy UTF-8 conversion to avoid dropping data
+fn strip_ansi_escapes_from_bytes(data: &[u8]) -> String {
+    let stripped = strip_ansi_escapes::strip(data);
+    String::from_utf8_lossy(&stripped).into_owned()
+}
+
+/// Check if raw bytes contain a signal pattern (fallback for non-UTF8 data)
+fn bytes_contain_signal(data: &[u8], pattern: &[u8]) -> bool {
+    data.windows(pattern.len()).any(|window| window == pattern)
 }
 
 /// Ctrl+C handling state
@@ -251,8 +219,8 @@ impl PtyManager {
         let mut stdout = io::stdout();
         let poll_timeout = Duration::from_millis(10);
 
-        // Accumulator for signal detection
-        let mut signal_accumulator = String::new();
+        // Raw byte accumulator for signal detection (handles non-UTF8 data)
+        let mut raw_accumulator: Vec<u8> = Vec::new();
 
         loop {
             // Check if we should stop (SIGTERM from external signal)
@@ -298,26 +266,24 @@ impl PtyManager {
                         .flush()
                         .map_err(|e| HydraError::io("flushing output file", e))?;
 
-                    // Accumulate for signal detection
-                    if let Ok(s) = std::str::from_utf8(&data) {
-                        signal_accumulator.push_str(s);
+                    // Accumulate raw bytes for signal detection
+                    raw_accumulator.extend_from_slice(&data);
+
+                    // Check for stop signals BEFORE truncation
+                    let signal_result = self.check_for_signals_in_bytes(&raw_accumulator, verbose);
+
+                    // Truncate to avoid unbounded growth (keep last 16KB)
+                    if raw_accumulator.len() > BUFFER_TRUNCATION_THRESHOLD {
+                        let drain_to = raw_accumulator.len() - BUFFER_RETENTION_SIZE;
+                        raw_accumulator.drain(..drain_to);
+                        if verbose {
+                            eprintln!(
+                                "[hydra:debug] Truncated accumulator to {} bytes",
+                                raw_accumulator.len()
+                            );
+                        }
                     }
 
-                    // Check for stop signals BEFORE truncation to avoid losing the signal
-                    // if there's a lot of output after it in the same chunk
-                    let signal_result = self.check_for_signals(&signal_accumulator);
-
-                    // Now truncate to avoid unbounded growth (keep last 8KB for safety)
-                    // Claude's TUI can output a lot of formatting after the signal
-                    if signal_accumulator.len() > 8192 {
-                        let target = signal_accumulator.len() - 4096;
-                        // Find the nearest char boundary at or before target
-                        let drain_to = (0..=target)
-                            .rev()
-                            .find(|&i| signal_accumulator.is_char_boundary(i))
-                            .unwrap_or(0);
-                        signal_accumulator.drain(..drain_to);
-                    }
                     if signal_result != PtyResult::NoSignal {
                         if verbose {
                             eprintln!("[hydra:debug] Signal detected, terminating Claude");
@@ -338,18 +304,27 @@ impl PtyManager {
                 }
                 Ok(PtyMessage::Closed) => {
                     // PTY closed - process exited
-                    return Ok(self.check_for_signals(&signal_accumulator));
+                    if verbose {
+                        eprintln!("[hydra:debug] PTY closed, checking final buffer for signals");
+                    }
+                    return Ok(self.check_for_signals_in_bytes(&raw_accumulator, verbose));
                 }
-                Ok(PtyMessage::Error(_)) => {
+                Ok(PtyMessage::Error(e)) => {
                     // Error reading from PTY - process likely exited
-                    return Ok(self.check_for_signals(&signal_accumulator));
+                    if verbose {
+                        eprintln!("[hydra:debug] PTY error: {}, checking final buffer", e);
+                    }
+                    return Ok(self.check_for_signals_in_bytes(&raw_accumulator, verbose));
                 }
                 Err(mpsc::TryRecvError::Empty) => {
                     // No data available, continue
                 }
                 Err(mpsc::TryRecvError::Disconnected) => {
                     // Reader thread exited
-                    return Ok(self.check_for_signals(&signal_accumulator));
+                    if verbose {
+                        eprintln!("[hydra:debug] PTY reader disconnected, checking final buffer");
+                    }
+                    return Ok(self.check_for_signals_in_bytes(&raw_accumulator, verbose));
                 }
             }
         }
@@ -413,20 +388,38 @@ impl PtyManager {
         }
     }
 
-    /// Check accumulated output for stop signals
-    fn check_for_signals(&self, accumulator: &str) -> PtyResult {
-        // Strip ANSI escape sequences before checking for signals
-        // PTY output contains color codes and other escape sequences that
-        // can be interspersed in the signal text
-        let clean = strip_ansi_escapes(accumulator);
+    /// Check accumulated output for stop signals using multiple detection strategies
+    fn check_for_signals_in_bytes(&self, accumulator: &[u8], verbose: bool) -> PtyResult {
+        // Strategy 1: Check raw bytes directly (fastest, handles case where signal has no ANSI codes)
+        if bytes_contain_signal(accumulator, ALL_COMPLETE_BYTES) {
+            if verbose {
+                eprintln!("[hydra:debug] Signal found via raw byte search: ALL_TASKS_COMPLETE");
+            }
+            return PtyResult::AllComplete;
+        }
+        if bytes_contain_signal(accumulator, TASK_COMPLETE_BYTES) {
+            if verbose {
+                eprintln!("[hydra:debug] Signal found via raw byte search: TASK_COMPLETE");
+            }
+            return PtyResult::TaskComplete;
+        }
 
-        // Check for ALL_COMPLETE first (more specific)
+        // Strategy 2: Strip ANSI codes and check (handles interspersed escape sequences)
+        let clean = strip_ansi_escapes_from_bytes(accumulator);
+
         if clean.contains(ALL_COMPLETE_SIGNAL) {
+            if verbose {
+                eprintln!("[hydra:debug] Signal found after ANSI stripping: ALL_TASKS_COMPLETE");
+            }
             return PtyResult::AllComplete;
         }
         if clean.contains(TASK_COMPLETE_SIGNAL) {
+            if verbose {
+                eprintln!("[hydra:debug] Signal found after ANSI stripping: TASK_COMPLETE");
+            }
             return PtyResult::TaskComplete;
         }
+
         PtyResult::NoSignal
     }
 
@@ -552,9 +545,8 @@ mod tests {
         assert_eq!(key_event_to_bytes(&event), b"\x1b[A");
     }
 
-    #[test]
-    fn test_pty_result_signal_detection() {
-        let manager = PtyManager {
+    fn create_test_manager() -> PtyManager {
+        PtyManager {
             pty_pair: {
                 let pty_system = native_pty_system();
                 pty_system
@@ -569,78 +561,108 @@ mod tests {
             should_stop: Arc::new(AtomicBool::new(false)),
             ctrl_c_state: Arc::new(AtomicU8::new(CTRL_C_NONE)),
             child_pid: None,
-        };
+        }
+    }
+
+    #[test]
+    fn test_pty_result_signal_detection() {
+        let manager = create_test_manager();
 
         assert_eq!(
-            manager.check_for_signals("some output ###TASK_COMPLETE### more"),
+            manager.check_for_signals_in_bytes(b"some output ###TASK_COMPLETE### more", false),
             PtyResult::TaskComplete
         );
         assert_eq!(
-            manager.check_for_signals("###ALL_TASKS_COMPLETE###"),
+            manager.check_for_signals_in_bytes(b"###ALL_TASKS_COMPLETE###", false),
             PtyResult::AllComplete
         );
         assert_eq!(
-            manager.check_for_signals("no signals here"),
+            manager.check_for_signals_in_bytes(b"no signals here", false),
             PtyResult::NoSignal
         );
     }
 
     #[test]
-    fn test_strip_ansi_escapes() {
+    fn test_strip_ansi_escapes_from_bytes() {
         // Plain text should pass through unchanged
-        assert_eq!(strip_ansi_escapes("hello world"), "hello world");
+        assert_eq!(strip_ansi_escapes_from_bytes(b"hello world"), "hello world");
 
         // CSI sequences (colors, cursor movement) should be stripped
-        assert_eq!(strip_ansi_escapes("\x1b[32mgreen\x1b[0m"), "green");
-        assert_eq!(strip_ansi_escapes("\x1b[1;31mbold red\x1b[0m"), "bold red");
+        assert_eq!(strip_ansi_escapes_from_bytes(b"\x1b[32mgreen\x1b[0m"), "green");
+        assert_eq!(strip_ansi_escapes_from_bytes(b"\x1b[1;31mbold red\x1b[0m"), "bold red");
 
         // Multiple sequences
         assert_eq!(
-            strip_ansi_escapes("\x1b[32m###\x1b[0mTASK_COMPLETE\x1b[32m###\x1b[0m"),
+            strip_ansi_escapes_from_bytes(b"\x1b[32m###\x1b[0mTASK_COMPLETE\x1b[32m###\x1b[0m"),
             "###TASK_COMPLETE###"
         );
 
         // OSC sequences (title setting, etc.)
-        assert_eq!(strip_ansi_escapes("\x1b]0;title\x07text"), "text");
+        assert_eq!(strip_ansi_escapes_from_bytes(b"\x1b]0;title\x07text"), "text");
 
         // Cursor movement
-        assert_eq!(strip_ansi_escapes("\x1b[Hstart\x1b[10;20H"), "start");
+        assert_eq!(strip_ansi_escapes_from_bytes(b"\x1b[Hstart\x1b[10;20H"), "start");
+    }
+
+    #[test]
+    fn test_bytes_contain_signal() {
+        assert!(bytes_contain_signal(b"###TASK_COMPLETE###", TASK_COMPLETE_BYTES));
+        assert!(bytes_contain_signal(b"prefix###TASK_COMPLETE###suffix", TASK_COMPLETE_BYTES));
+        assert!(!bytes_contain_signal(b"###TASK_INCOMPLET###", TASK_COMPLETE_BYTES));
+        assert!(bytes_contain_signal(b"###ALL_TASKS_COMPLETE###", ALL_COMPLETE_BYTES));
     }
 
     #[test]
     fn test_signal_detection_with_ansi_codes() {
-        let manager = PtyManager {
-            pty_pair: {
-                let pty_system = native_pty_system();
-                pty_system
-                    .openpty(PtySize {
-                        rows: 24,
-                        cols: 80,
-                        pixel_width: 0,
-                        pixel_height: 0,
-                    })
-                    .unwrap()
-            },
-            should_stop: Arc::new(AtomicBool::new(false)),
-            ctrl_c_state: Arc::new(AtomicU8::new(CTRL_C_NONE)),
-            child_pid: None,
-        };
+        let manager = create_test_manager();
 
         // Signal with color codes around it
         assert_eq!(
-            manager.check_for_signals("\x1b[32m###TASK_COMPLETE###\x1b[0m"),
+            manager.check_for_signals_in_bytes(b"\x1b[32m###TASK_COMPLETE###\x1b[0m", false),
             PtyResult::TaskComplete
         );
 
         // Signal with color codes interspersed
         assert_eq!(
-            manager.check_for_signals("output\x1b[1m###ALL_TASKS_COMPLETE###\x1b[0m\n"),
+            manager.check_for_signals_in_bytes(b"output\x1b[1m###ALL_TASKS_COMPLETE###\x1b[0m\n", false),
             PtyResult::AllComplete
         );
 
         // Mixed content with cursor movements
         assert_eq!(
-            manager.check_for_signals("\x1b[H\x1b[2JDone!\n\x1b[32m###TASK_COMPLETE###\x1b[0m"),
+            manager.check_for_signals_in_bytes(b"\x1b[H\x1b[2JDone!\n\x1b[32m###TASK_COMPLETE###\x1b[0m", false),
+            PtyResult::TaskComplete
+        );
+    }
+
+    #[test]
+    fn test_signal_detection_with_invalid_utf8() {
+        let manager = create_test_manager();
+
+        // Signal mixed with invalid UTF-8 bytes
+        let mut data = Vec::new();
+        data.extend_from_slice(b"prefix");
+        data.push(0xFF); // Invalid UTF-8
+        data.push(0xFE); // Invalid UTF-8
+        data.extend_from_slice(b"###TASK_COMPLETE###");
+        data.push(0x80); // Invalid UTF-8
+        data.extend_from_slice(b"suffix");
+
+        // Should still detect the signal via raw byte search
+        assert_eq!(
+            manager.check_for_signals_in_bytes(&data, false),
+            PtyResult::TaskComplete
+        );
+    }
+
+    #[test]
+    fn test_signal_detection_with_dcs_sequence() {
+        let manager = create_test_manager();
+
+        // DCS sequence (ESC P ... ESC \) that the old parser didn't handle
+        let data = b"\x1bP+q\x1b\\###TASK_COMPLETE###";
+        assert_eq!(
+            manager.check_for_signals_in_bytes(data, false),
             PtyResult::TaskComplete
         );
     }
