@@ -53,6 +53,8 @@ pub enum PtyResult {
     NoSignal,
     /// Terminated by user interrupt
     Terminated,
+    /// Iteration timed out
+    Timeout,
 }
 
 /// Messages sent from the PTY reader thread
@@ -130,7 +132,7 @@ impl PtyManager {
     }
 
     /// Run the I/O loop, handling input/output and watching for signals
-    pub fn run_io_loop(&mut self, output_path: &Path, verbose: bool) -> Result<PtyResult> {
+    pub fn run_io_loop(&mut self, output_path: &Path, verbose: bool, timeout_seconds: u64) -> Result<PtyResult> {
         // Open output file for capturing Claude's output
         let mut output_file = OpenOptions::new()
             .create(true)
@@ -168,6 +170,7 @@ impl PtyManager {
             &mut output_file,
             &rx,
             verbose,
+            timeout_seconds,
         );
 
         // Disable raw mode
@@ -215,14 +218,27 @@ impl PtyManager {
         output_file: &mut File,
         rx: &Receiver<PtyMessage>,
         verbose: bool,
+        timeout_seconds: u64,
     ) -> Result<PtyResult> {
+        use std::time::Instant;
+
         let mut stdout = io::stdout();
         let poll_timeout = Duration::from_millis(10);
+        let timeout_duration = Duration::from_secs(timeout_seconds);
+        let start_time = Instant::now();
 
         // Raw byte accumulator for signal detection (handles non-UTF8 data)
         let mut raw_accumulator: Vec<u8> = Vec::new();
 
         loop {
+            // Check for timeout
+            if start_time.elapsed() >= timeout_duration {
+                println!();
+                println!("[hydra] Iteration timeout ({} seconds) reached without stop signal, terminating Claude process...", timeout_seconds);
+                self.terminate_child();
+                return Ok(PtyResult::Timeout);
+            }
+
             // Check if we should stop (SIGTERM from external signal)
             if self.should_stop.load(Ordering::SeqCst) {
                 self.terminate_child();

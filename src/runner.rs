@@ -56,6 +56,8 @@ pub enum IterationResult {
     NoSignal,
     /// Process was terminated (by signal or stop file)
     Terminated,
+    /// Iteration timed out without receiving a stop signal
+    Timeout,
 }
 
 /// Result of the entire run loop
@@ -69,6 +71,8 @@ pub enum RunResult {
     Stopped { iterations: u32 },
     /// Interrupted (SIGINT)
     Interrupted,
+    /// Session ended due to timeout on last iteration
+    Timeout { iterations: u32 },
 }
 
 /// Session logger for writing output to `.hydra/logs/`
@@ -146,6 +150,7 @@ impl SessionLogger {
             IterationResult::AllComplete => "ALL_COMPLETE",
             IterationResult::NoSignal => "NO_SIGNAL",
             IterationResult::Terminated => "TERMINATED",
+            IterationResult::Timeout => "TIMEOUT",
         };
         self.log(&format!("ITERATION {} END: {}", iteration, result_str))?;
         Ok(())
@@ -242,7 +247,7 @@ impl Runner {
 
         // Run the I/O loop (handles stdin, stdout, and signal detection)
         let output_path = output_file.path().to_path_buf();
-        let pty_result = pty.run_io_loop(&output_path, self.config.verbose)?;
+        let pty_result = pty.run_io_loop(&output_path, self.config.verbose, self.config.timeout_seconds)?;
 
         // Convert PtyResult to IterationResult
         let result = match pty_result {
@@ -250,6 +255,7 @@ impl Runner {
             PtyResult::AllComplete => IterationResult::AllComplete,
             PtyResult::NoSignal => IterationResult::NoSignal,
             PtyResult::Terminated => IterationResult::Terminated,
+            PtyResult::Timeout => IterationResult::Timeout,
         };
 
         // Copy iteration output to session log
@@ -337,7 +343,7 @@ impl Runner {
                     }
                     return Ok(RunResult::Stopped { iterations: iteration });
                 }
-                IterationResult::TaskComplete | IterationResult::NoSignal => {
+                IterationResult::TaskComplete | IterationResult::NoSignal | IterationResult::Timeout => {
                     // Continue to next iteration
                     if self.config.verbose {
                         eprintln!("[hydra:debug] Continuing to next iteration");
@@ -364,6 +370,7 @@ mod tests {
             max_iterations: 3,
             verbose: false,
             stop_file: ".hydra-stop-test".to_string(),
+            timeout_seconds: 1200,
         }
     }
 
@@ -458,11 +465,13 @@ mod tests {
         logger.log_iteration_end(2, &IterationResult::AllComplete).unwrap();
         logger.log_iteration_end(3, &IterationResult::NoSignal).unwrap();
         logger.log_iteration_end(4, &IterationResult::Terminated).unwrap();
+        logger.log_iteration_end(5, &IterationResult::Timeout).unwrap();
 
         let content = fs::read_to_string(&log_path).unwrap();
         assert!(content.contains("TASK_COMPLETE"));
         assert!(content.contains("ALL_COMPLETE"));
         assert!(content.contains("NO_SIGNAL"));
         assert!(content.contains("TERMINATED"));
+        assert!(content.contains("TIMEOUT"));
     }
 }

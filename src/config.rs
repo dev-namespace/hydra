@@ -14,6 +14,9 @@ pub struct Config {
 
     /// Name of the stop file to check for graceful shutdown
     pub stop_file: String,
+
+    /// Timeout per iteration in seconds (default: 1200 = 20 minutes)
+    pub timeout_seconds: u64,
 }
 
 impl Default for Config {
@@ -22,6 +25,7 @@ impl Default for Config {
             max_iterations: 10,
             verbose: false,
             stop_file: ".hydra-stop".to_string(),
+            timeout_seconds: 1200, // 20 minutes
         }
     }
 }
@@ -85,13 +89,16 @@ impl Config {
 
     /// Merge CLI options over config values
     /// CLI options take precedence when provided
-    pub fn merge_cli(&mut self, max: Option<u32>, verbose: bool) {
+    pub fn merge_cli(&mut self, max: Option<u32>, verbose: bool, timeout: Option<u64>) {
         if let Some(m) = max {
             self.max_iterations = m;
         }
         // verbose is additive: true from either source enables it
         if verbose {
             self.verbose = true;
+        }
+        if let Some(t) = timeout {
+            self.timeout_seconds = t;
         }
     }
 }
@@ -108,6 +115,7 @@ mod tests {
         assert_eq!(config.max_iterations, 10);
         assert!(!config.verbose);
         assert_eq!(config.stop_file, ".hydra-stop");
+        assert_eq!(config.timeout_seconds, 1200);
     }
 
     #[test]
@@ -121,6 +129,7 @@ mod tests {
 max_iterations = 20
 verbose = true
 stop_file = ".custom-stop"
+timeout_seconds = 600
 "#,
         )
         .unwrap();
@@ -129,6 +138,7 @@ stop_file = ".custom-stop"
         assert_eq!(config.max_iterations, 20);
         assert!(config.verbose);
         assert_eq!(config.stop_file, ".custom-stop");
+        assert_eq!(config.timeout_seconds, 600);
     }
 
     #[test]
@@ -150,16 +160,19 @@ stop_file = ".custom-stop"
         let mut config = Config::default();
         assert_eq!(config.max_iterations, 10);
         assert!(!config.verbose);
+        assert_eq!(config.timeout_seconds, 1200);
 
         // Merge with CLI options
-        config.merge_cli(Some(25), true);
+        config.merge_cli(Some(25), true, Some(300));
         assert_eq!(config.max_iterations, 25);
         assert!(config.verbose);
+        assert_eq!(config.timeout_seconds, 300);
 
         // Merge with None keeps existing value
-        config.merge_cli(None, false);
+        config.merge_cli(None, false, None);
         assert_eq!(config.max_iterations, 25);
         assert!(config.verbose); // verbose stays true once enabled
+        assert_eq!(config.timeout_seconds, 300);
     }
 
     #[test]

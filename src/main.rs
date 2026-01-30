@@ -46,6 +46,7 @@ fn run(cli: Cli) -> Result<()> {
     config.merge_cli(
         if cli.max != 10 { Some(cli.max) } else { None },
         cli.verbose,
+        if cli.timeout != 1200 { Some(cli.timeout) } else { None },
     );
 
     if config.verbose {
@@ -85,6 +86,7 @@ fn run(cli: Cli) -> Result<()> {
             // Dry run: show configuration without executing
             println!("Configuration (dry-run):");
             println!("  max_iterations: {}", config.max_iterations);
+            println!("  timeout_seconds: {} ({} minutes)", config.timeout_seconds, config.timeout_seconds / 60);
             println!("  verbose: {}", config.verbose);
             println!("  stop_file: {}", config.stop_file);
             println!("  prompt_source: {}", resolved.source);
@@ -103,8 +105,20 @@ fn run(cli: Cli) -> Result<()> {
             println!("---");
             Ok(())
         } else {
-            // Print banner
+            // Print banner and version
             println!("{}", BANNER);
+            println!("                                  hydra v{}", env!("CARGO_PKG_VERSION"));
+            println!();
+
+            // Print the prompt content so user knows what they're sending
+            println!("─── prompt ({}) ───", resolved.source);
+            println!();
+            for line in resolved.content.lines() {
+                println!("  {}", line);
+            }
+            println!();
+            println!("─────────────────────────────────────────");
+            println!();
 
             // Create the runner
             let mut runner = Runner::new(config.clone(), resolved);
@@ -122,6 +136,7 @@ fn run(cli: Cli) -> Result<()> {
             match result {
                 RunResult::AllTasksComplete { .. } => Ok(()),
                 RunResult::MaxIterations { .. } => Ok(()),
+                RunResult::Timeout { .. } => Ok(()), // Timeout is success - we just move to next iteration
                 RunResult::Stopped { .. } => Err(HydraError::GracefulStop),
                 RunResult::Interrupted => Err(HydraError::Interrupted),
             }
@@ -299,6 +314,22 @@ fn install_command() -> Result<()> {
     perms.set_mode(0o755);
     fs::set_permissions(&dest_path, perms)
         .map_err(|e| HydraError::io(format!("setting permissions on {}", dest_path.display()), e))?;
+
+    // On macOS, re-sign the binary with ad-hoc signature to satisfy Gatekeeper
+    // Copying invalidates the original code signature, causing "killed" on execution
+    #[cfg(target_os = "macos")]
+    {
+        let status = std::process::Command::new("codesign")
+            .args(["--force", "--sign", "-", dest_path.to_str().unwrap()])
+            .status()
+            .map_err(|e| HydraError::io("running codesign", e))?;
+
+        if !status.success() {
+            eprintln!(
+                "Warning: codesign failed. The binary may not run due to Gatekeeper restrictions."
+            );
+        }
+    }
 
     println!("Installed hydra to {}", dest_path.display());
 

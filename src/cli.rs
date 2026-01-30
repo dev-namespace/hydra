@@ -40,6 +40,11 @@ pub struct Cli {
     /// Install hydra to ~/.local/bin
     #[arg(long)]
     pub install: bool,
+
+    /// Timeout per iteration in seconds (default: 1200 = 20 minutes)
+    /// If Claude doesn't output a stop signal within this time, the iteration is terminated
+    #[arg(short, long, default_value = "1200")]
+    pub timeout: u64,
 }
 
 #[derive(Subcommand, Debug)]
