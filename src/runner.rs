@@ -10,6 +10,21 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tempfile::NamedTempFile;
 
+/// Debug log to file (since terminal may be frozen)
+fn debug_log(msg: &str) {
+    if let Ok(mut f) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/hydra-debug.log")
+    {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let _ = writeln!(f, "[{}] runner: {}", timestamp, msg);
+    }
+}
+
 /// Iteration instructions prepended to the prompt
 const ITERATION_INSTRUCTIONS: &str = r#"╔══════════════════════════════════════════════════════════════════════════════╗
 ║                           hydra ITERATION INSTRUCTIONS                       ║
@@ -321,7 +336,9 @@ impl Runner {
             }
 
             // Run the iteration
+            debug_log(&format!("starting iteration {}", iteration));
             let result = self.run_iteration(iteration)?;
+            debug_log(&format!("iteration {} returned {:?}", iteration, result));
 
             // Log iteration end
             if let Some(ref mut logger) = self.logger {
@@ -330,6 +347,7 @@ impl Runner {
 
             match result {
                 IterationResult::AllComplete => {
+                    debug_log("all tasks complete");
                     println!("[hydra] All tasks complete! Total runs: {}", iteration);
                     if let Some(ref mut logger) = self.logger {
                         let _ = logger.log(&format!("Session ended: all tasks complete after {} iterations", iteration));
@@ -337,6 +355,7 @@ impl Runner {
                     return Ok(RunResult::AllTasksComplete { iterations: iteration });
                 }
                 IterationResult::Terminated => {
+                    debug_log("terminated");
                     println!("[hydra] Graceful shutdown complete");
                     if let Some(ref mut logger) = self.logger {
                         let _ = logger.log("Session ended: terminated");
@@ -344,6 +363,7 @@ impl Runner {
                     return Ok(RunResult::Stopped { iterations: iteration });
                 }
                 IterationResult::TaskComplete | IterationResult::NoSignal | IterationResult::Timeout => {
+                    debug_log("continuing to next iteration");
                     // Continue to next iteration
                     if self.config.verbose {
                         eprintln!("[hydra:debug] Continuing to next iteration");
@@ -352,6 +372,7 @@ impl Runner {
             }
         }
 
+        debug_log("max iterations reached, returning");
         println!("[hydra] Max iterations reached");
         if let Some(ref mut logger) = self.logger {
             let _ = logger.log(&format!("Session ended: max iterations ({}) reached", max));

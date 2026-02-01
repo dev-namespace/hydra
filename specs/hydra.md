@@ -117,12 +117,27 @@ The implementation plan is located at: [plan file path]
 ### PTY Lifecycle
 When an iteration completes (signal detected, timeout, or termination):
 1. Child process (Claude) is terminated via SIGTERM
-2. Wait for child to exit (with 2-second timeout, then SIGKILL)
+2. Wait for child to exit (with 500ms timeout, then SIGKILL)
 3. Drop PTY pair to close file descriptors (causes EOF on reader thread)
-4. Wait for reader thread to exit
-5. Restore terminal to normal mode
+4. Wait for reader thread to exit (with 500ms timeout)
+5. Restore terminal to normal mode with comprehensive reset sequence
 
 This ensures clean process termination without leaving orphaned threads or hanging terminals.
+
+### Terminal Reset
+When Claude is terminated, hydra sends a comprehensive terminal reset sequence to recover from any TUI state Claude may have left behind. This includes:
+- XON (Ctrl+Q) to resume if XOFF stopped the terminal
+- CAN to cancel any partial escape sequence
+- Disable synchronized output mode (`[?2026l`) - critical for Claude's TUI
+- Disable all mouse tracking modes
+- Disable bracketed paste mode
+- Disable focus reporting
+- Disable kitty keyboard protocol
+- Exit alternate screen buffer
+- Reset cursor visibility and attributes
+- Full terminal reset (RIS)
+
+The synchronized output mode (`[?2026h`) is particularly important - if Claude's TUI enables it but gets killed before sending the closing `[?2026l`, the terminal will buffer all output and appear frozen.
 
 ### Config File (`~/.hydra/config.toml`)
 ```toml

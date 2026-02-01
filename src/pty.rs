@@ -12,6 +12,103 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
+/// Debug log to file (since terminal may be frozen)
+fn debug_log(msg: &str) {
+    use std::fs::OpenOptions;
+    if let Ok(mut f) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/hydra-debug.log")
+    {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let _ = writeln!(f, "[{}] {}", timestamp, msg);
+    }
+}
+
+/// Restore terminal to normal mode with fallback reset sequence
+/// This is more robust than just calling disable_raw_mode()
+fn restore_terminal(verbose: bool) {
+    debug_log("restore_terminal: starting");
+
+    // First, try the normal crossterm disable_raw_mode
+    match disable_raw_mode() {
+        Ok(_) => debug_log("restore_terminal: disable_raw_mode succeeded"),
+        Err(e) => debug_log(&format!("restore_terminal: disable_raw_mode failed: {}", e)),
+    }
+
+    // Comprehensive reset sequence that:
+    // 1. XON to resume if XOFF stopped the terminal
+    // 2. Cancels any partial escape sequence (CAN character)
+    // 3. Disables all mouse tracking modes
+    // 4. Disables bracketed paste mode
+    // 5. Disables focus reporting
+    // 6. Exits alternate screen buffer
+    // 7. Resets all terminal modes
+    let reset_sequence = concat!(
+        "\x11",         // XON (Ctrl+Q) - resume if XOFF stopped terminal
+        "\x18",         // CAN - cancel any partial escape sequence
+        "\x1b[?2026l",  // Disable synchronized output (used by Claude TUI)
+        "\x1b[?1000l",  // Disable mouse click tracking
+        "\x1b[?1002l",  // Disable mouse button tracking
+        "\x1b[?1003l",  // Disable mouse any-event tracking
+        "\x1b[?1006l",  // Disable SGR mouse mode
+        "\x1b[?1015l",  // Disable urxvt mouse mode
+        "\x1b[?2004l",  // Disable bracketed paste mode
+        "\x1b[?1004l",  // Disable focus reporting
+        "\x1b[<u",      // Disable kitty keyboard protocol
+        "\x1b[?1049l",  // Exit alternate screen buffer
+        "\x1b[?1l",     // Reset cursor keys mode
+        "\x1b[?7h",     // Enable line wrapping
+        "\x1b[?25h",    // Show cursor
+        "\x1b[0m",      // Reset attributes
+        "\x1b[r",       // Reset scroll region
+        "\x1b[H",       // Move cursor home
+        "\x1bc",        // Full terminal reset (RIS)
+    );
+
+    // Try /dev/tty first (direct terminal access)
+    #[cfg(unix)]
+    {
+        if let Ok(mut tty) = OpenOptions::new().write(true).open("/dev/tty") {
+            let _ = tty.write_all(reset_sequence.as_bytes());
+            let _ = tty.flush();
+            debug_log("restore_terminal: wrote reset to /dev/tty");
+        } else {
+            // Fallback to stdout
+            let mut stdout = io::stdout();
+            let _ = stdout.write_all(reset_sequence.as_bytes());
+            let _ = stdout.flush();
+            debug_log("restore_terminal: wrote reset to stdout (fallback)");
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        let mut stdout = io::stdout();
+        let _ = stdout.write_all(reset_sequence.as_bytes());
+        let _ = stdout.flush();
+        debug_log("restore_terminal: wrote reset to stdout");
+    }
+
+    // Run stty sane as fallback
+    #[cfg(unix)]
+    {
+        use std::process::Command;
+        let _ = Command::new("stty")
+            .arg("sane")
+            .stdin(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+        debug_log("restore_terminal: stty sane executed");
+    }
+
+    debug_log("restore_terminal: complete");
+}
+
 /// Stop signals that Claude outputs to indicate task completion
 const TASK_COMPLETE_SIGNAL: &str = "###TASK_COMPLETE###";
 const ALL_COMPLETE_SIGNAL: &str = "###ALL_TASKS_COMPLETE###";
@@ -170,7 +267,9 @@ impl PtyManager {
         self.reader_thread = Some(reader_handle);
 
         // Enable raw mode for stdin
+        debug_log("run_io_loop: enabling raw mode");
         enable_raw_mode().map_err(|e| HydraError::io("enabling raw mode", io::Error::other(e.to_string())))?;
+        debug_log("run_io_loop: raw mode enabled");
 
         let result = self.io_loop_inner(
             &mut pty_writer,
@@ -180,12 +279,16 @@ impl PtyManager {
             timeout_seconds,
         );
 
-        // Disable raw mode
-        let _ = disable_raw_mode();
+        debug_log(&format!("run_io_loop: io_loop_inner returned {:?}", result));
 
         // Clean up: drop PTY to close file descriptors and wake up reader thread
+        // Do this BEFORE disabling raw mode so the reader thread can exit
         self.cleanup(verbose);
 
+        // Disable raw mode with fallback terminal reset
+        restore_terminal(verbose);
+
+        debug_log("run_io_loop: returning result");
         result
     }
 
@@ -232,7 +335,12 @@ impl PtyManager {
     ) -> Result<PtyResult> {
         use std::time::Instant;
 
-        let mut stdout = io::stdout();
+        // Write to /dev/tty instead of stdout to avoid potential issues
+        // with stdout buffering or redirection
+        let mut tty_output: Box<dyn Write> = match OpenOptions::new().write(true).open("/dev/tty") {
+            Ok(tty) => Box::new(tty),
+            Err(_) => Box::new(io::stdout()),
+        };
         let poll_timeout = Duration::from_millis(10);
         let timeout_duration = Duration::from_secs(timeout_seconds);
         let start_time = Instant::now();
@@ -278,11 +386,11 @@ impl PtyManager {
             // Check for PTY output (non-blocking via try_recv)
             match rx.try_recv() {
                 Ok(PtyMessage::Data(data)) => {
-                    // Write to stdout
-                    stdout
+                    // Write to tty/stdout
+                    tty_output
                         .write_all(&data)
-                        .map_err(|e| HydraError::io("writing to stdout", e))?;
-                    stdout.flush().map_err(|e| HydraError::io("flushing stdout", e))?;
+                        .map_err(|e| HydraError::io("writing to tty", e))?;
+                    tty_output.flush().map_err(|e| HydraError::io("flushing tty", e))?;
 
                     // Write to output file
                     output_file
@@ -314,6 +422,21 @@ impl PtyManager {
                         if verbose {
                             eprintln!("[hydra:debug] Signal detected, terminating Claude");
                         }
+
+                        // Immediately send terminal reset to try to recover before freeze
+                        // This is sent BEFORE terminating Claude
+                        let emergency_reset = concat!(
+                            "\x18",         // CAN - cancel partial escape
+                            "\x1b[?1000l",  // Disable mouse
+                            "\x1b[?2004l",  // Disable bracketed paste
+                            "\x1b[?1049l",  // Exit alt screen
+                            "\x1b[0m",      // Reset attributes
+                            "\x1b[?25h",    // Show cursor
+                        );
+                        let _ = tty_output.write_all(emergency_reset.as_bytes());
+                        let _ = tty_output.flush();
+                        debug_log("io_loop: emergency reset sent before termination");
+
                         println!();
                         match signal_result {
                             PtyResult::AllComplete => {
@@ -476,8 +599,11 @@ impl PtyManager {
     /// Clean up resources after I/O loop completes
     /// This closes the PTY to wake up the reader thread and waits for child process
     fn cleanup(&mut self, verbose: bool) {
+        debug_log("cleanup: starting");
+
         // Signal reader thread to stop first
         self.should_stop.store(true, Ordering::SeqCst);
+        debug_log("cleanup: should_stop set to true");
 
         // Force kill the child process immediately - don't wait for graceful exit
         // This is the fastest way to ensure the PTY slave closes and reader gets EOF
@@ -485,36 +611,68 @@ impl PtyManager {
             eprintln!("[hydra:debug] Force killing child process...");
         }
         self.force_kill_child();
+        debug_log("cleanup: force_kill_child called");
 
         // Brief wait for child to actually die
         if let Some(ref mut child) = self.child {
+            debug_log("cleanup: waiting for child to die");
             let wait_start = std::time::Instant::now();
             while wait_start.elapsed() < Duration::from_millis(500) {
                 match child.try_wait() {
-                    Ok(Some(_)) => break,
+                    Ok(Some(_)) => {
+                        debug_log("cleanup: child exited");
+                        break;
+                    }
                     Ok(None) => thread::sleep(Duration::from_millis(10)),
                     Err(_) => break,
                 }
             }
         }
         self.child = None;
+        debug_log("cleanup: child = None");
 
         // Drop the PTY pair to close file descriptors
+        // This should cause the reader thread to get EOF (eventually)
         if verbose {
             eprintln!("[hydra:debug] Closing PTY...");
         }
         self.pty_pair = None;
+        debug_log("cleanup: pty_pair = None");
 
-        // DON'T wait for the reader thread - it has a cloned FD that we can't close
-        // from here. Just detach it - it will be killed when the process exits.
-        // Trying to join it can hang indefinitely.
-        if let Some(_handle) = self.reader_thread.take() {
+        // Wait briefly for reader thread to notice the PTY closed
+        // The cloned FD might keep the read() blocking, but child death should cause EOF
+        if let Some(handle) = self.reader_thread.take() {
+            debug_log("cleanup: waiting for reader thread (max 500ms)");
             if verbose {
-                eprintln!("[hydra:debug] Detaching reader thread (will be cleaned up on exit)");
+                eprintln!("[hydra:debug] Waiting for reader thread (max 500ms)...");
             }
-            // Dropping the JoinHandle detaches the thread - it will continue running
-            // but will be terminated when the process exits
+
+            // Spawn a thread to join, with timeout
+            let (tx, rx) = mpsc::channel();
+            let join_thread = thread::spawn(move || {
+                let result = handle.join();
+                let _ = tx.send(result);
+            });
+
+            // Wait with timeout
+            match rx.recv_timeout(Duration::from_millis(500)) {
+                Ok(_) => {
+                    debug_log("cleanup: reader thread exited cleanly");
+                    if verbose {
+                        eprintln!("[hydra:debug] Reader thread exited cleanly");
+                    }
+                }
+                Err(_) => {
+                    debug_log("cleanup: reader thread timeout, detaching");
+                    if verbose {
+                        eprintln!("[hydra:debug] Reader thread did not exit in time, detaching");
+                    }
+                    // Detach the join thread - the reader will die when process exits
+                    drop(join_thread);
+                }
+            }
         }
+        debug_log("cleanup: complete");
     }
 }
 
@@ -542,8 +700,8 @@ impl Drop for PtyManager {
             // Dropping detaches the thread - it will be killed on process exit
         }
 
-        // Make sure raw mode is disabled
-        let _ = disable_raw_mode();
+        // Make sure terminal is restored to normal mode
+        restore_terminal(false);
     }
 }
 

@@ -12,11 +12,27 @@ use config::Config;
 use error::{HydraError, Result, EXIT_SUCCESS};
 use prompt::{inject_plan_path, resolve_prompt};
 use runner::{RunResult, Runner};
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
 
+/// Debug log to file (since terminal may be frozen)
+fn debug_log(msg: &str) {
+    if let Ok(mut f) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/hydra-debug.log")
+    {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let _ = writeln!(f, "[{}] main: {}", timestamp, msg);
+    }
+}
+
 fn main() {
+    debug_log("main started");
     let cli = Cli::parse();
     let verbose = cli.verbose;
 
@@ -25,11 +41,16 @@ fn main() {
     }
 
     let result = run(cli);
+    debug_log(&format!("run() returned: {:?}", result.is_ok()));
 
     match result {
-        Ok(()) => std::process::exit(EXIT_SUCCESS),
+        Ok(()) => {
+            debug_log("exiting with success");
+            std::process::exit(EXIT_SUCCESS)
+        },
         Err(e) => {
             let exit_code = e.exit_code();
+            debug_log(&format!("exiting with error code {}", exit_code));
             if verbose || exit_code != error::EXIT_STOPPED {
                 eprintln!("hydra: {}", e);
             }
