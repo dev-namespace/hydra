@@ -170,20 +170,29 @@ const BANNER: &str = r#"
 ⠻⠶⠾⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠋
 "#;
 
-/// Template content for project-specific prompt.md
-const PROJECT_PROMPT_TEMPLATE: &str = r#"- throughly study ./specs/index.md
-- study the provided implementation plan .md file
-- pick the highest leverage unchecked task
-- complete the task
-- write an unbiased unit test to verify
-- make sure you check finished tasks in the plan
-"#;
+/// Default template content for project-specific prompt.md
+/// Used as fallback when ~/.hydra/prompt-template.md doesn't exist
+const DEFAULT_PROJECT_PROMPT_TEMPLATE: &str = include_str!("../templates/default-prompt.md");
+
+/// Load the project prompt template from ~/.hydra/prompt-template.md
+/// Falls back to DEFAULT_PROJECT_PROMPT_TEMPLATE if the file doesn't exist
+fn load_prompt_template() -> String {
+    let template_path = Config::global_prompt_template_path();
+    if template_path.exists() {
+        fs::read_to_string(&template_path).unwrap_or_else(|_| DEFAULT_PROJECT_PROMPT_TEMPLATE.to_string())
+    } else {
+        DEFAULT_PROJECT_PROMPT_TEMPLATE.to_string()
+    }
+}
 
 /// Initialize .hydra/ directory structure in current project
 fn init_command(verbose: bool) -> Result<()> {
     let hydra_dir = Config::local_hydra_dir();
     let logs_dir = Config::logs_dir();
     let prompt_path = Config::local_prompt_path();
+
+    // Ensure global ~/.hydra/ directory and template exist
+    ensure_global_template(verbose)?;
 
     // Check if .hydra already exists
     if hydra_dir.exists() {
@@ -204,11 +213,12 @@ fn init_command(verbose: bool) -> Result<()> {
         }
     }
 
-    // Create prompt.md template if it doesn't exist
+    // Create prompt.md from template if it doesn't exist
     if !prompt_path.exists() {
-        fs::write(&prompt_path, PROJECT_PROMPT_TEMPLATE)
+        let template_content = load_prompt_template();
+        fs::write(&prompt_path, template_content)
             .map_err(|e| HydraError::io(format!("writing {}", prompt_path.display()), e))?;
-        println!("Created {} (template)", prompt_path.display());
+        println!("Created {} (from template)", prompt_path.display());
     } else if verbose {
         println!("{} already exists", prompt_path.display());
     }
@@ -217,6 +227,30 @@ fn init_command(verbose: bool) -> Result<()> {
     update_gitignore(verbose)?;
 
     println!("\nInitialization complete. Edit .hydra/prompt.md with your task instructions.");
+    println!("Customize the template at: {}", Config::global_prompt_template_path().display());
+    Ok(())
+}
+
+/// Ensure the global hydra directory and prompt template exist
+fn ensure_global_template(verbose: bool) -> Result<()> {
+    let hydra_dir = Config::global_hydra_dir();
+    if !hydra_dir.exists() {
+        fs::create_dir_all(&hydra_dir)
+            .map_err(|e| HydraError::io(format!("creating {}", hydra_dir.display()), e))?;
+        if verbose {
+            println!("Created {}", hydra_dir.display());
+        }
+    }
+
+    let template_path = Config::global_prompt_template_path();
+    if !template_path.exists() {
+        fs::write(&template_path, DEFAULT_PROJECT_PROMPT_TEMPLATE)
+            .map_err(|e| HydraError::io(format!("writing {}", template_path.display()), e))?;
+        if verbose {
+            println!("Created {}", template_path.display());
+        }
+    }
+
     Ok(())
 }
 

@@ -72,6 +72,11 @@ impl Config {
         Self::global_hydra_dir().join("default-prompt.md")
     }
 
+    /// Get the path to the global prompt template file (used by `hydra init`)
+    pub fn global_prompt_template_path() -> PathBuf {
+        Self::global_hydra_dir().join("prompt-template.md")
+    }
+
     /// Get the path to the local hydra directory (./.hydra)
     pub fn local_hydra_dir() -> PathBuf {
         PathBuf::from(".hydra")
@@ -194,6 +199,7 @@ timeout_seconds = 600
         assert!(!Config::global_hydra_dir().as_os_str().is_empty());
         assert!(Config::global_config_path().ends_with("config.toml"));
         assert!(Config::global_default_prompt_path().ends_with("default-prompt.md"));
+        assert!(Config::global_prompt_template_path().ends_with("prompt-template.md"));
         assert_eq!(Config::local_hydra_dir(), PathBuf::from(".hydra"));
         assert!(Config::local_prompt_path().ends_with("prompt.md"));
         assert!(Config::logs_dir().ends_with("logs"));

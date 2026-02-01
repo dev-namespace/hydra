@@ -4,21 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 
 /// Default prompt template content for newly created default-prompt.md
-const DEFAULT_PROMPT_TEMPLATE: &str = r#"# Hydra Default Prompt
-
-This is your global fallback prompt. Customize it or create a project-specific prompt.
-
-## Prompt Priority
-
-1. `--prompt <path>` (CLI override)
-2. `./.hydra/prompt.md` (project-specific)
-3. `./prompt.md` (current directory)
-4. `~/.hydra/default-prompt.md` (this file)
-
-## Instructions
-
-Replace this content with your task instructions for Claude Code.
-"#;
+const DEFAULT_PROMPT_TEMPLATE: &str = include_str!("../templates/default-prompt.md");
 
 /// Result of prompt resolution
 #[derive(Debug)]

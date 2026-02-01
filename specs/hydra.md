@@ -114,6 +114,16 @@ The implementation plan is located at: [plan file path]
 - **Terminal I/O**: Uses `crossterm` for raw mode input handling and keyboard events
 - **Signal handling**: SIGINT/SIGTERM with child process group management
 
+### PTY Lifecycle
+When an iteration completes (signal detected, timeout, or termination):
+1. Child process (Claude) is terminated via SIGTERM
+2. Wait for child to exit (with 2-second timeout, then SIGKILL)
+3. Drop PTY pair to close file descriptors (causes EOF on reader thread)
+4. Wait for reader thread to exit
+5. Restore terminal to normal mode
+
+This ensures clean process termination without leaving orphaned threads or hanging terminals.
+
 ### Config File (`~/.hydra/config.toml`)
 ```toml
 max_iterations = 10

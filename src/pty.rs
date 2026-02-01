@@ -2,14 +2,14 @@ use crate::error::{HydraError, Result};
 use crate::signal::{clear_child_pid, set_child_pid};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::terminal::{self, disable_raw_mode, enable_raw_mode};
-use portable_pty::{native_pty_system, CommandBuilder, PtyPair, PtySize};
+use portable_pty::{native_pty_system, Child, CommandBuilder, PtyPair, PtySize};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
-use std::thread;
+use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 /// Stop signals that Claude outputs to indicate task completion
@@ -66,10 +66,12 @@ enum PtyMessage {
 
 /// Manages a PTY session for running Claude
 pub struct PtyManager {
-    pty_pair: PtyPair,
+    pty_pair: Option<PtyPair>,
     should_stop: Arc<AtomicBool>,
     ctrl_c_state: Arc<AtomicU8>,
     child_pid: Option<u32>,
+    child: Option<Box<dyn Child + Send + Sync>>,
+    reader_thread: Option<JoinHandle<()>>,
 }
 
 impl PtyManager {
@@ -92,15 +94,20 @@ impl PtyManager {
             .map_err(|e| HydraError::io("creating PTY pair", io::Error::other(e.to_string())))?;
 
         Ok(Self {
-            pty_pair,
+            pty_pair: Some(pty_pair),
             should_stop,
             ctrl_c_state: Arc::new(AtomicU8::new(CTRL_C_NONE)),
             child_pid: None,
+            child: None,
+            reader_thread: None,
         })
     }
 
     /// Spawn Claude in the PTY
     pub fn spawn_claude(&mut self, prompt_path: &Path) -> Result<()> {
+        let pty_pair = self.pty_pair.as_ref()
+            .ok_or_else(|| HydraError::io("PTY already consumed", io::Error::other("PTY pair is None")))?;
+
         // Build command to run Claude
         let mut cmd = CommandBuilder::new("claude");
         cmd.arg("--dangerously-skip-permissions");
@@ -112,8 +119,7 @@ impl PtyManager {
         cmd.cwd(cwd);
 
         // Spawn the command in the PTY
-        let child = self
-            .pty_pair
+        let child = pty_pair
             .slave
             .spawn_command(cmd)
             .map_err(|e| HydraError::io("spawning claude in PTY", io::Error::other(e.to_string())))?;
@@ -124,9 +130,8 @@ impl PtyManager {
             set_child_pid(pid);
         }
 
-        // Store the child handle - it will be dropped when PtyManager is dropped
-        // which is fine since we track via process_id
-        std::mem::forget(child);
+        // Store the child handle for proper cleanup
+        self.child = Some(child);
 
         Ok(())
     }
@@ -141,14 +146,15 @@ impl PtyManager {
             .open(output_path)
             .map_err(|e| HydraError::io("opening output file", e))?;
 
+        let pty_pair = self.pty_pair.as_ref()
+            .ok_or_else(|| HydraError::io("PTY already consumed", io::Error::other("PTY pair is None")))?;
+
         // Get PTY reader and writer
-        let pty_reader = self
-            .pty_pair
+        let pty_reader = pty_pair
             .master
             .try_clone_reader()
             .map_err(|e| HydraError::io("cloning PTY reader", io::Error::other(e.to_string())))?;
-        let mut pty_writer = self
-            .pty_pair
+        let mut pty_writer = pty_pair
             .master
             .take_writer()
             .map_err(|e| HydraError::io("taking PTY writer", io::Error::other(e.to_string())))?;
@@ -158,9 +164,10 @@ impl PtyManager {
 
         // Spawn a thread to read from PTY (blocking read)
         let reader_should_stop = Arc::clone(&self.should_stop);
-        thread::spawn(move || {
+        let reader_handle = thread::spawn(move || {
             Self::pty_reader_thread(pty_reader, tx, reader_should_stop);
         });
+        self.reader_thread = Some(reader_handle);
 
         // Enable raw mode for stdin
         enable_raw_mode().map_err(|e| HydraError::io("enabling raw mode", io::Error::other(e.to_string())))?;
@@ -175,6 +182,9 @@ impl PtyManager {
 
         // Disable raw mode
         let _ = disable_raw_mode();
+
+        // Clean up: drop PTY to close file descriptors and wake up reader thread
+        self.cleanup(verbose);
 
         result
     }
@@ -462,12 +472,75 @@ impl PtyManager {
             }
         }
     }
+
+    /// Clean up resources after I/O loop completes
+    /// This closes the PTY to wake up the reader thread and waits for child process
+    fn cleanup(&mut self, verbose: bool) {
+        // Signal reader thread to stop first
+        self.should_stop.store(true, Ordering::SeqCst);
+
+        // Force kill the child process immediately - don't wait for graceful exit
+        // This is the fastest way to ensure the PTY slave closes and reader gets EOF
+        if verbose {
+            eprintln!("[hydra:debug] Force killing child process...");
+        }
+        self.force_kill_child();
+
+        // Brief wait for child to actually die
+        if let Some(ref mut child) = self.child {
+            let wait_start = std::time::Instant::now();
+            while wait_start.elapsed() < Duration::from_millis(500) {
+                match child.try_wait() {
+                    Ok(Some(_)) => break,
+                    Ok(None) => thread::sleep(Duration::from_millis(10)),
+                    Err(_) => break,
+                }
+            }
+        }
+        self.child = None;
+
+        // Drop the PTY pair to close file descriptors
+        if verbose {
+            eprintln!("[hydra:debug] Closing PTY...");
+        }
+        self.pty_pair = None;
+
+        // DON'T wait for the reader thread - it has a cloned FD that we can't close
+        // from here. Just detach it - it will be killed when the process exits.
+        // Trying to join it can hang indefinitely.
+        if let Some(_handle) = self.reader_thread.take() {
+            if verbose {
+                eprintln!("[hydra:debug] Detaching reader thread (will be cleaned up on exit)");
+            }
+            // Dropping the JoinHandle detaches the thread - it will continue running
+            // but will be terminated when the process exits
+        }
+    }
 }
 
 impl Drop for PtyManager {
     fn drop(&mut self) {
         // Clear the child PID from signal handler
         clear_child_pid();
+
+        // Signal reader thread to stop
+        self.should_stop.store(true, Ordering::SeqCst);
+
+        // Clean up any remaining resources (in case cleanup wasn't called)
+        // Force kill child if still running
+        if self.child.is_some() {
+            self.force_kill_child();
+        }
+        self.child = None;
+
+        // Drop PTY to close file descriptors
+        self.pty_pair = None;
+
+        // DON'T wait for reader thread - just detach it
+        // Trying to join can hang because the reader has a cloned FD
+        if let Some(_handle) = self.reader_thread.take() {
+            // Dropping detaches the thread - it will be killed on process exit
+        }
 
         // Make sure raw mode is disabled
         let _ = disable_raw_mode();
@@ -563,7 +636,7 @@ mod tests {
 
     fn create_test_manager() -> PtyManager {
         PtyManager {
-            pty_pair: {
+            pty_pair: Some({
                 let pty_system = native_pty_system();
                 pty_system
                     .openpty(PtySize {
@@ -573,10 +646,12 @@ mod tests {
                         pixel_height: 0,
                     })
                     .unwrap()
-            },
+            }),
             should_stop: Arc::new(AtomicBool::new(false)),
             ctrl_c_state: Arc::new(AtomicU8::new(CTRL_C_NONE)),
             child_pid: None,
+            child: None,
+            reader_thread: None,
         }
     }
 
@@ -681,5 +756,105 @@ mod tests {
             manager.check_for_signals_in_bytes(data, false),
             PtyResult::TaskComplete
         );
+    }
+
+    #[test]
+    fn test_cleanup_does_not_wait_for_reader_thread() {
+        use std::time::Instant;
+
+        // Create a PtyManager with a simulated blocking reader thread
+        let should_stop = Arc::new(AtomicBool::new(false));
+        let should_stop_clone = Arc::clone(&should_stop);
+
+        // Spawn a thread that would block for a long time
+        let blocking_thread = thread::spawn(move || {
+            // This thread will block for 10 seconds unless stopped
+            for _ in 0..1000 {
+                if should_stop_clone.load(Ordering::SeqCst) {
+                    return;
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+        });
+
+        let mut manager = PtyManager {
+            pty_pair: None, // No actual PTY needed for this test
+            should_stop: Arc::clone(&should_stop),
+            ctrl_c_state: Arc::new(AtomicU8::new(CTRL_C_NONE)),
+            child_pid: None,
+            child: None,
+            reader_thread: Some(blocking_thread),
+        };
+
+        // Time the cleanup - it should complete almost immediately since we don't wait
+        let start = Instant::now();
+        manager.cleanup(false);
+        let elapsed = start.elapsed();
+
+        // Cleanup should complete in under 1 second (just the child kill wait)
+        // We no longer wait for the reader thread at all
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "Cleanup took {:?}, expected < 1s - cleanup should not wait for reader",
+            elapsed
+        );
+    }
+
+    #[test]
+    fn test_drop_does_not_wait_for_reader_thread() {
+        use std::time::Instant;
+
+        // Create a PtyManager with a simulated blocking reader thread
+        let should_stop = Arc::new(AtomicBool::new(false));
+        let should_stop_clone = Arc::clone(&should_stop);
+
+        // Spawn a thread that would block for a long time
+        let blocking_thread = thread::spawn(move || {
+            for _ in 0..1000 {
+                if should_stop_clone.load(Ordering::SeqCst) {
+                    return;
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+        });
+
+        let manager = PtyManager {
+            pty_pair: None,
+            should_stop: Arc::clone(&should_stop),
+            ctrl_c_state: Arc::new(AtomicU8::new(CTRL_C_NONE)),
+            child_pid: None,
+            child: None,
+            reader_thread: Some(blocking_thread),
+        };
+
+        // Time the drop - it should complete almost immediately
+        let start = Instant::now();
+        drop(manager);
+        let elapsed = start.elapsed();
+
+        // Drop should complete in under 100ms - we just detach the thread
+        assert!(
+            elapsed < Duration::from_millis(100),
+            "Drop took {:?}, expected < 100ms - drop should not wait for reader",
+            elapsed
+        );
+    }
+
+    #[test]
+    fn test_cleanup_sets_should_stop_flag() {
+        let should_stop = Arc::new(AtomicBool::new(false));
+
+        let mut manager = PtyManager {
+            pty_pair: None,
+            should_stop: Arc::clone(&should_stop),
+            ctrl_c_state: Arc::new(AtomicU8::new(CTRL_C_NONE)),
+            child_pid: None,
+            child: None,
+            reader_thread: None,
+        };
+
+        assert!(!should_stop.load(Ordering::SeqCst));
+        manager.cleanup(false);
+        assert!(should_stop.load(Ordering::SeqCst));
     }
 }

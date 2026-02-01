@@ -1,0 +1,5 @@
+- throughly study ./specs/index.md
+- study the provided implementation plan .md file
+- check the `/local-dev-guide` skill if it exists
+- pick the highest leverage unchecked task and complete it
+- create unbiased unit tests for each task to make sure implementation works
