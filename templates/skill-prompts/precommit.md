@@ -21,29 +21,38 @@ If `.claude/skills/local-dev-guide/SKILL.md` exists, read it first—it contains
    - **Format check**: Only check mode (--check), no auto-fix
    - **Fast tests**: Only if unit tests run in under 2-3 seconds
 
-3. **Create `.prek.toml`** at project root with parallel hooks:
+3. **Create `.pre-commit-config.yaml`** at project root with parallel hooks:
 
-```toml
-# Precommit hooks - all run in parallel
+```yaml
+# Precommit hooks - all run in parallel via prek
 # Each hook should complete in under 5 seconds
-
-[[hook]]
-name = "lint"
-run = "<lint-command>"
-# Example: "npm run lint" or "cargo clippy -- -D warnings"
-
-[[hook]]
-name = "typecheck"
-run = "<typecheck-command>"
-# Example: "npx tsc --noEmit" or "mypy ."
-
-[[hook]]
-name = "format-check"
-run = "<format-check-command>"
-# Example: "npx prettier --check ." or "cargo fmt --check"
+repos:
+  - repo: local
+    hooks:
+      - id: lint
+        name: lint
+        entry: <lint-command>  # e.g., "cargo clippy -- -D warnings" or "npm run lint"
+        language: system
+        pass_filenames: false
+      - id: typecheck
+        name: typecheck
+        entry: <typecheck-command>  # e.g., "npx tsc --noEmit" or "mypy ."
+        language: system
+        pass_filenames: false
+      - id: format-check
+        name: format-check
+        entry: <format-check-command>  # e.g., "cargo fmt --check" or "npx prettier --check ."
+        language: system
+        pass_filenames: false
 ```
 
-4. **Update CLAUDE.md** (create if needed) with a brief note:
+4. **Install the git hook** by running:
+```bash
+prek install
+```
+This creates `.git/hooks/pre-commit` which executes the hooks defined in `.pre-commit-config.yaml`.
+
+5. **Update CLAUDE.md** (create if needed) with a brief note:
 
 ```markdown
 ## Precommit Hooks
@@ -73,13 +82,13 @@ Fast parallel hooks via prek: <list active hooks>. Commit checkpoints frequently
 - Any check taking more than 5 seconds
 
 ### File Handling
-- Create `.prek.toml` at project root
-- If `.prek.toml` exists, update it (preserve existing hooks, add missing ones)
+- Create `.pre-commit-config.yaml` at project root
+- If `.pre-commit-config.yaml` exists, update it (preserve existing hooks, add missing ones)
 - Only add CLAUDE.md section if hooks were successfully created
 - Keep CLAUDE.md addition to 3-5 lines max
 
 ## Do NOT
 - Run destructive commands
-- Install prek (user handles installation)
+- Install the prek binary (user handles that—just run `prek install` to set up hooks)
 - Add hooks for tools not configured in the project
 - Include slow test suites even if they exist

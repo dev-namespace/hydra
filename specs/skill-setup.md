@@ -128,8 +128,8 @@ Hooks to **exclude**:
 
 ### Precommit Output Location
 
-- Hooks are configured in `.prek.toml` at project root
-- If `.prek.toml` already exists, Claude updates it (preserving existing hooks)
+- Hooks are configured in `.pre-commit-config.yaml` at project root
+- If `.pre-commit-config.yaml` already exists, Claude updates it (preserving existing hooks)
 
 ### CLAUDE.md Update
 
