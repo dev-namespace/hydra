@@ -11,3 +11,11 @@ Automated Claude Code task runner, iteration loop, task automation, prompt resol
 **Source**: `src/` (Rust: main.rs, runner.rs, pty.rs, signal.rs, config.rs, prompt.rs)
 
 ---
+
+## [Skill Setup](./skill-setup.md)
+
+Claude Code skills, local-dev-guide, deploy-and-check, hydra init extension, skill creation, skill templates, interactive prompts, PTY spawning, project setup, development workflow, deployment workflow, build commands, dev server, docker-compose, SSH, production verification.
+
+**Source**: `src/main.rs` (init_command), `src/pty.rs`, `templates/skill-prompts/`
+
+---
