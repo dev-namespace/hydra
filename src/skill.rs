@@ -16,6 +16,7 @@ use std::time::Duration;
 const LOCAL_DEV_GUIDE_TEMPLATE: &str = include_str!("../templates/skill-prompts/local-dev-guide.md");
 const DEPLOY_AND_CHECK_TEMPLATE: &str = include_str!("../templates/skill-prompts/deploy-and-check.md");
 const PERMISSIONS_TEMPLATE: &str = include_str!("../templates/skill-prompts/permissions.md");
+const PRECOMMIT_TEMPLATE: &str = include_str!("../templates/skill-prompts/precommit.md");
 
 /// Skill types that can be created
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -23,6 +24,7 @@ pub enum SkillType {
     Permissions,
     LocalDevGuide,
     DeployAndCheck,
+    Precommit,
 }
 
 impl SkillType {
@@ -32,6 +34,7 @@ impl SkillType {
             SkillType::Permissions => "permissions",
             SkillType::LocalDevGuide => "local-dev-guide",
             SkillType::DeployAndCheck => "deploy-and-check",
+            SkillType::Precommit => "precommit",
         }
     }
 
@@ -41,6 +44,7 @@ impl SkillType {
             SkillType::Permissions => "Configure Claude Code permissions?",
             SkillType::LocalDevGuide => "Set up local-dev-guide skill?",
             SkillType::DeployAndCheck => "Set up deploy-and-check skill?",
+            SkillType::Precommit => "Set up precommit hooks?",
         }
     }
 
@@ -49,12 +53,23 @@ impl SkillType {
         matches!(self, SkillType::Permissions)
     }
 
+    /// Check if this is a precommit setup (not a skill)
+    pub fn is_precommit(&self) -> bool {
+        matches!(self, SkillType::Precommit)
+    }
+
+    /// Check if this type creates a skill directory
+    pub fn creates_skill_directory(&self) -> bool {
+        matches!(self, SkillType::LocalDevGuide | SkillType::DeployAndCheck)
+    }
+
     /// Get the embedded default template
     fn default_template(&self) -> &'static str {
         match self {
             SkillType::Permissions => PERMISSIONS_TEMPLATE,
             SkillType::LocalDevGuide => LOCAL_DEV_GUIDE_TEMPLATE,
             SkillType::DeployAndCheck => DEPLOY_AND_CHECK_TEMPLATE,
+            SkillType::Precommit => PRECOMMIT_TEMPLATE,
         }
     }
 
@@ -146,8 +161,8 @@ fn parse_yes_no_response(input: &str) -> bool {
 pub fn create_skill_with_claude(skill_type: SkillType, verbose: bool) -> Result<()> {
     let skill_name = skill_type.name();
 
-    // For skills (not permissions), create the skill directory
-    if !skill_type.is_permissions() {
+    // For skills (not permissions or precommit), create the skill directory
+    if skill_type.creates_skill_directory() {
         let skill_dir = PathBuf::from(".claude")
             .join("skills")
             .join(skill_name);
@@ -177,6 +192,8 @@ pub fn create_skill_with_claude(skill_type: SkillType, verbose: bool) -> Result<
     println!();
     if skill_type.is_permissions() {
         println!("─── Starting Claude to configure permissions ───");
+    } else if skill_type.is_precommit() {
+        println!("─── Starting Claude to set up precommit hooks ───");
     } else {
         println!("─── Starting Claude to create {} skill ───", skill_name);
     }
@@ -492,6 +509,7 @@ mod tests {
         assert_eq!(SkillType::Permissions.name(), "permissions");
         assert_eq!(SkillType::LocalDevGuide.name(), "local-dev-guide");
         assert_eq!(SkillType::DeployAndCheck.name(), "deploy-and-check");
+        assert_eq!(SkillType::Precommit.name(), "precommit");
     }
 
     #[test]
@@ -499,6 +517,7 @@ mod tests {
         assert_eq!(SkillType::Permissions.prompt_text(), "Configure Claude Code permissions?");
         assert_eq!(SkillType::LocalDevGuide.prompt_text(), "Set up local-dev-guide skill?");
         assert_eq!(SkillType::DeployAndCheck.prompt_text(), "Set up deploy-and-check skill?");
+        assert_eq!(SkillType::Precommit.prompt_text(), "Set up precommit hooks?");
     }
 
     #[test]
@@ -506,6 +525,23 @@ mod tests {
         assert!(SkillType::Permissions.is_permissions());
         assert!(!SkillType::LocalDevGuide.is_permissions());
         assert!(!SkillType::DeployAndCheck.is_permissions());
+        assert!(!SkillType::Precommit.is_permissions());
+    }
+
+    #[test]
+    fn test_skill_type_is_precommit() {
+        assert!(!SkillType::Permissions.is_precommit());
+        assert!(!SkillType::LocalDevGuide.is_precommit());
+        assert!(!SkillType::DeployAndCheck.is_precommit());
+        assert!(SkillType::Precommit.is_precommit());
+    }
+
+    #[test]
+    fn test_skill_type_creates_skill_directory() {
+        assert!(!SkillType::Permissions.creates_skill_directory());
+        assert!(SkillType::LocalDevGuide.creates_skill_directory());
+        assert!(SkillType::DeployAndCheck.creates_skill_directory());
+        assert!(!SkillType::Precommit.creates_skill_directory());
     }
 
     #[test]
@@ -513,13 +549,16 @@ mod tests {
         let permissions = SkillType::Permissions.default_template();
         let local_dev = SkillType::LocalDevGuide.default_template();
         let deploy = SkillType::DeployAndCheck.default_template();
+        let precommit = SkillType::Precommit.default_template();
 
         assert!(!permissions.is_empty());
         assert!(!local_dev.is_empty());
         assert!(!deploy.is_empty());
+        assert!(!precommit.is_empty());
         assert!(permissions.contains("settings.local.json"));
         assert!(local_dev.contains("local-dev-guide"));
         assert!(deploy.contains("deploy-and-check"));
+        assert!(precommit.contains("prek"));
     }
 
     #[test]

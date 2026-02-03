@@ -11,9 +11,9 @@ Extend `hydra init` to configure Claude Code permissions, optionally create skil
 - [x] Skill creation infrastructure (`prompt_yes_no()`, `create_skill_with_claude()`, skill prompts)
 - [x] Extend `init_command()` to prompt for each skill and spawn Claude if accepted
 - [x] Add `templates/skill-prompts/precommit.md` prompt for Claude to set up prek hooks
-- [ ] Extend `init_command()` to prompt "Set up precommit hooks? [y/N]" after skills
-- [ ] Claude creates `.prek.toml` with fast, parallel hooks (lint, typecheck, sanity checks)
-- [ ] If hooks added, Claude appends succinct precommit guidance to `CLAUDE.md`
+- [x] Extend `init_command()` to prompt "Set up precommit hooks? [y/N]" after skills
+- [x] Claude creates `.prek.toml` with fast, parallel hooks (lint, typecheck, sanity checks)
+- [x] If hooks added, Claude appends succinct precommit guidance to `CLAUDE.md`
 
 ## Specs
 
@@ -24,8 +24,8 @@ Extend `hydra init` to configure Claude Code permissions, optionally create skil
 
 - [x] `hydra init` prompts for permissions first, then skills
 - [x] Claude creates valid `.claude/skills/<name>/SKILL.md` files
-- [ ] `hydra init` prompts for precommit hooks after skills
-- [ ] Claude creates valid `.prek.toml` with parallel hooks
-- [ ] Claude appends precommit guidance to `CLAUDE.md` (only if hooks created)
+- [x] `hydra init` prompts for precommit hooks after skills
+- [x] Claude creates valid `.prek.toml` with parallel hooks
+- [x] Claude appends precommit guidance to `CLAUDE.md` (only if hooks created)
 
 **Note**: Verification that "Claude creates valid `.claude/settings.local.json` with non-destructive permissions" requires manual testing with actual Claude execution.

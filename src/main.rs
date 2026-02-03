@@ -261,7 +261,7 @@ fn init_command(verbose: bool) -> Result<()> {
 
 /// Prompt for and optionally set up Claude Code permissions and skills
 fn setup_skills(verbose: bool) -> Result<()> {
-    // Prompt for permissions setup first (per spec: permissions → local-dev-guide → deploy-and-check)
+    // Prompt for permissions setup first (per spec: permissions → local-dev-guide → deploy-and-check → precommit)
     if prompt_yes_no(SkillType::Permissions.prompt_text())? {
         create_skill_with_claude(SkillType::Permissions, verbose)?;
     }
@@ -274,6 +274,11 @@ fn setup_skills(verbose: bool) -> Result<()> {
     // Prompt for deploy-and-check skill
     if prompt_yes_no(SkillType::DeployAndCheck.prompt_text())? {
         create_skill_with_claude(SkillType::DeployAndCheck, verbose)?;
+    }
+
+    // Prompt for precommit hooks setup
+    if prompt_yes_no(SkillType::Precommit.prompt_text())? {
+        create_skill_with_claude(SkillType::Precommit, verbose)?;
     }
 
     Ok(())
