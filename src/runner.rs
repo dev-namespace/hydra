@@ -364,6 +364,9 @@ impl Runner {
                 }
                 IterationResult::TaskComplete | IterationResult::NoSignal | IterationResult::Timeout => {
                     debug_log("continuing to next iteration");
+                    // Reset should_stop flag - it may have been set by cleanup() during PTY teardown
+                    // but that doesn't mean we should stop the entire run loop
+                    self.should_stop.store(false, Ordering::SeqCst);
                     // Continue to next iteration
                     if self.config.verbose {
                         eprintln!("[hydra:debug] Continuing to next iteration");
