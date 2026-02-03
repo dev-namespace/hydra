@@ -5,6 +5,7 @@ mod prompt;
 mod pty;
 mod runner;
 mod signal;
+mod skill;
 
 use clap::Parser;
 use cli::Cli;
@@ -12,6 +13,7 @@ use config::Config;
 use error::{HydraError, Result, EXIT_SUCCESS};
 use prompt::{inject_plan_path, resolve_prompt};
 use runner::{RunResult, Runner};
+use skill::{create_skill_with_claude, prompt_yes_no, SkillType};
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
@@ -249,6 +251,31 @@ fn init_command(verbose: bool) -> Result<()> {
 
     println!("\nInitialization complete. Edit .hydra/prompt.md with your task instructions.");
     println!("Customize the template at: {}", Config::global_prompt_template_path().display());
+
+    // Prompt for skill setup
+    println!();
+    setup_skills(verbose)?;
+
+    Ok(())
+}
+
+/// Prompt for and optionally set up Claude Code permissions and skills
+fn setup_skills(verbose: bool) -> Result<()> {
+    // Prompt for permissions setup first (per spec: permissions → local-dev-guide → deploy-and-check)
+    if prompt_yes_no(SkillType::Permissions.prompt_text())? {
+        create_skill_with_claude(SkillType::Permissions, verbose)?;
+    }
+
+    // Prompt for local-dev-guide skill
+    if prompt_yes_no(SkillType::LocalDevGuide.prompt_text())? {
+        create_skill_with_claude(SkillType::LocalDevGuide, verbose)?;
+    }
+
+    // Prompt for deploy-and-check skill
+    if prompt_yes_no(SkillType::DeployAndCheck.prompt_text())? {
+        create_skill_with_claude(SkillType::DeployAndCheck, verbose)?;
+    }
+
     Ok(())
 }
 

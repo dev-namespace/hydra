@@ -6,9 +6,11 @@ Extension to `hydra init` that optionally creates Claude Code skills for local d
 
 ### During `hydra init`
 
-- Users are prompted "Set up local-dev-guide skill? [y/N]" after standard init completes
+- Users are prompted "Configure Claude Code permissions? [y/N]" after standard init completes
+- Users are prompted "Set up local-dev-guide skill? [y/N]" after permissions setup
 - Users are prompted "Set up deploy-and-check skill? [y/N]" after the first skill prompt
-- Users can decline either skill by pressing Enter or typing "n"
+- Users are prompted "Set up precommit hooks? [y/N]" after skill prompts
+- Users can decline any prompt by pressing Enter or typing "n"
 - Users can accept by typing "y" or "Y"
 
 ### When Creating a Skill
@@ -18,19 +20,35 @@ Extension to `hydra init` that optionally creates Claude Code skills for local d
 - Users see Claude analyze the repository and test non-destructive commands
 - Users can interrupt Claude with Ctrl+C if needed
 
+### Permissions Setup
+
+- Users interact with Claude to configure `.claude/settings.local.json`
+- Claude analyzes the project and suggests appropriate non-destructive permissions
+- Permissions include read/write access to project files, `.claude/`, and `.hydra/`
+
 ### Skill Templates
 
 - Users can customize skill creation prompts via `~/.hydra/skill-templates/local-dev-guide.md`
 - Users can customize skill creation prompts via `~/.hydra/skill-templates/deploy-and-check.md`
+- Users can customize permissions prompt via `~/.hydra/skill-templates/permissions.md`
+- Users can customize precommit prompt via `~/.hydra/skill-templates/precommit.md`
 - If template files don't exist, embedded defaults are used
 
 ## Constraints
 
 ### Prompt Behavior
 
-- Prompts default to "No" (pressing Enter skips the skill)
-- Skills are created one at a time, sequentially
-- If user declines both, init completes normally with no additional output
+- Prompts default to "No" (pressing Enter skips)
+- Steps are executed sequentially: permissions → local-dev-guide → deploy-and-check → precommit
+- If user declines all, init completes normally with no additional output
+
+### Permissions Setup
+
+- Claude creates/updates `.claude/settings.local.json`
+- Grants non-destructive permissions: Read, Write, Edit, Glob, Grep for project files
+- Allows Bash commands for build, dev server, and SSH (non-destructive)
+- Denies destructive commands (rm -rf, git push --force, deploy, etc.)
+- Ensures access to `.claude/` and `.hydra/` directories
 
 ### Claude Code Execution
 
@@ -78,12 +96,68 @@ disable-model-invocation: true
 
 The `disable-model-invocation: true` ensures users invoke these manually via `/local-dev-guide` or `/deploy-and-check`.
 
+### Precommit Setup
+
+- Users are prompted "Set up precommit hooks? [y/N]" after skill prompts
+- Claude analyzes the codebase and sets up [prek](https://github.com/j178/prek) hooks
+- Users can customize the precommit prompt via `~/.hydra/skill-templates/precommit.md`
+
+### Precommit Hook Requirements
+
+Hooks must be **fast and parallel**:
+
+- All hooks run in parallel via prek's parallel execution
+- Individual hooks should complete in under 5 seconds
+- Total precommit time should stay under 10 seconds
+
+Hooks to include (if applicable to the project):
+
+- **Lint**: ESLint, Clippy, Ruff, golangci-lint, etc.
+- **Type check**: TypeScript, mypy, pyright, etc.
+- **Sanity checks**: Format check (no auto-fix), import sorting check
+- **Fast tests**: Only if they run in under 2-3 seconds (unit tests, not integration)
+
+Hooks to **exclude**:
+
+- Full test suites (even if project has them)
+- Integration tests
+- E2E tests
+- Build/compile steps that take more than a few seconds
+- Any check that requires network access
+- Any check that takes more than 5 seconds
+
+### Precommit Output Location
+
+- Hooks are configured in `.prek.toml` at project root
+- If `.prek.toml` already exists, Claude updates it (preserving existing hooks)
+
+### CLAUDE.md Update
+
+If and only if precommit hooks are successfully created:
+
+- Claude appends a brief section to `CLAUDE.md` (creates file if needed)
+- The section explains which hooks are active
+- Suggests Claude commit checkpoints frequently and rely on parallel hooks
+- Must be very succinct (3-5 lines max)
+
+Example CLAUDE.md addition:
+```markdown
+## Precommit Hooks
+
+Fast parallel hooks via prek: lint, typecheck, format-check. Commit checkpoints frequently—hooks catch issues faster than manual checks.
+```
+
 ## Related Specs
 
 - [Hydra](./hydra.md) - Core hydra functionality and PTY infrastructure
 
 ## Source
 
-- [src/main.rs](../src/main.rs) - `init_command` function (to be extended)
+- [src/main.rs](../src/main.rs) - `init_command` function and `setup_skills` integration
+- [src/skill.rs](../src/skill.rs) - Skill creation infrastructure (`prompt_yes_no`, `create_skill_with_claude`)
 - [src/pty.rs](../src/pty.rs) - PTY infrastructure for spawning Claude
-- [templates/skill-prompts/](../templates/skill-prompts/) - Embedded default prompts (to be created)
+- [templates/skill-prompts/](../templates/skill-prompts/) - Embedded default prompts
+  - `permissions.md` - Claude Code permissions setup
+  - `local-dev-guide.md` - Local development skill
+  - `deploy-and-check.md` - Deployment skill
+  - `precommit.md` - Precommit hooks setup with prek

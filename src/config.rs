@@ -77,6 +77,11 @@ impl Config {
         Self::global_hydra_dir().join("prompt-template.md")
     }
 
+    /// Get the path to the global skill templates directory (~/.hydra/skill-templates)
+    pub fn global_skill_templates_dir() -> PathBuf {
+        Self::global_hydra_dir().join("skill-templates")
+    }
+
     /// Get the path to the local hydra directory (./.hydra)
     pub fn local_hydra_dir() -> PathBuf {
         PathBuf::from(".hydra")
