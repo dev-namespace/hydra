@@ -45,9 +45,8 @@ impl Config {
 
     /// Load config from a specific path
     pub fn load_from_path(path: &PathBuf) -> Result<Self> {
-        let content = std::fs::read_to_string(path).map_err(|e| {
-            HydraError::io(format!("reading config file {}", path.display()), e)
-        })?;
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| HydraError::io(format!("reading config file {}", path.display()), e))?;
 
         toml::from_str(&content).map_err(|e| HydraError::ConfigParse {
             path: path.clone(),

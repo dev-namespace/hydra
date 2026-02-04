@@ -3,9 +3,6 @@ use crate::error::{HydraError, Result};
 use std::fs;
 use std::path::PathBuf;
 
-/// Default prompt template content for newly created default-prompt.md
-const DEFAULT_PROMPT_TEMPLATE: &str = include_str!("../templates/default-prompt.md");
-
 /// Result of prompt resolution
 #[derive(Debug)]
 pub struct ResolvedPrompt {
@@ -116,24 +113,6 @@ pub fn inject_plan_path(prompt_content: &str, plan_path: &std::path::Path) -> St
         prompt_content.trim_end(),
         plan_path.display()
     )
-}
-
-/// Ensure the global hydra directory and default prompt exist
-/// Creates ~/.hydra/ and ~/.hydra/default-prompt.md if they don't exist
-pub fn ensure_global_default() -> Result<()> {
-    let hydra_dir = Config::global_hydra_dir();
-    if !hydra_dir.exists() {
-        fs::create_dir_all(&hydra_dir)
-            .map_err(|e| HydraError::io(format!("creating {}", hydra_dir.display()), e))?;
-    }
-
-    let default_prompt = Config::global_default_prompt_path();
-    if !default_prompt.exists() {
-        fs::write(&default_prompt, DEFAULT_PROMPT_TEMPLATE)
-            .map_err(|e| HydraError::io(format!("writing {}", default_prompt.display()), e))?;
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]

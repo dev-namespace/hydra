@@ -6,8 +6,8 @@ use chrono::Local;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tempfile::NamedTempFile;
 
 /// Debug log to file (since terminal may be frozen)
@@ -77,6 +77,7 @@ pub enum IterationResult {
 
 /// Result of the entire run loop
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum RunResult {
     /// All tasks completed successfully
     AllTasksComplete { iterations: u32 },
@@ -105,8 +106,9 @@ impl SessionLogger {
 
         // Create logs directory if it doesn't exist
         if !logs_dir.exists() {
-            fs::create_dir_all(&logs_dir)
-                .map_err(|e| HydraError::io(format!("creating logs directory {}", logs_dir.display()), e))?;
+            fs::create_dir_all(&logs_dir).map_err(|e| {
+                HydraError::io(format!("creating logs directory {}", logs_dir.display()), e)
+            })?;
         }
 
         // Generate timestamp-based filename: hydra-YYYYMMDD-HHMMSS.log
@@ -125,17 +127,13 @@ impl SessionLogger {
         Ok(Self { path, file })
     }
 
-    /// Get the path to the log file
-    fn path(&self) -> &PathBuf {
-        &self.path
-    }
-
     /// Write a message to the log
     fn log(&mut self, message: &str) -> Result<()> {
         let timestamp = Local::now().format("%H:%M:%S");
         writeln!(self.file, "[{}] {}", timestamp, message)
             .map_err(|e| HydraError::io("writing to log file", e))?;
-        self.file.flush()
+        self.file
+            .flush()
             .map_err(|e| HydraError::io("flushing log file", e))?;
         Ok(())
     }
@@ -144,7 +142,8 @@ impl SessionLogger {
     fn append_content(&mut self, content: &str) -> Result<()> {
         write!(self.file, "{}", content)
             .map_err(|e| HydraError::io("writing content to log file", e))?;
-        self.file.flush()
+        self.file
+            .flush()
             .map_err(|e| HydraError::io("flushing log file", e))?;
         Ok(())
     }
@@ -200,19 +199,9 @@ impl Runner {
         }
     }
 
-    /// Get the path to the session log file, if logging is enabled
-    pub fn log_path(&self) -> Option<&PathBuf> {
-        self.logger.as_ref().map(|l| l.path())
-    }
-
     /// Get a clone of the stop flag for signal handlers
     pub fn stop_flag(&self) -> Arc<AtomicBool> {
         Arc::clone(&self.should_stop)
-    }
-
-    /// Request the runner to stop after current iteration
-    pub fn request_stop(&self) {
-        self.should_stop.store(true, Ordering::SeqCst);
     }
 
     /// Create a combined prompt file with iteration instructions
@@ -262,7 +251,11 @@ impl Runner {
 
         // Run the I/O loop (handles stdin, stdout, and signal detection)
         let output_path = output_file.path().to_path_buf();
-        let pty_result = pty.run_io_loop(&output_path, self.config.verbose, self.config.timeout_seconds)?;
+        let pty_result = pty.run_io_loop(
+            &output_path,
+            self.config.verbose,
+            self.config.timeout_seconds,
+        )?;
 
         // Convert PtyResult to IterationResult
         let result = match pty_result {
@@ -274,10 +267,10 @@ impl Runner {
         };
 
         // Copy iteration output to session log
-        if let Some(ref mut logger) = self.logger {
-            if let Ok(output_content) = fs::read_to_string(&output_path) {
-                let _ = logger.append_content(&output_content);
-            }
+        if let Some(ref mut logger) = self.logger
+            && let Ok(output_content) = fs::read_to_string(&output_path)
+        {
+            let _ = logger.append_content(&output_content);
         }
 
         println!("[hydra] Run #{} complete", iteration);
@@ -350,9 +343,14 @@ impl Runner {
                     debug_log("all tasks complete");
                     println!("[hydra] All tasks complete! Total runs: {}", iteration);
                     if let Some(ref mut logger) = self.logger {
-                        let _ = logger.log(&format!("Session ended: all tasks complete after {} iterations", iteration));
+                        let _ = logger.log(&format!(
+                            "Session ended: all tasks complete after {} iterations",
+                            iteration
+                        ));
                     }
-                    return Ok(RunResult::AllTasksComplete { iterations: iteration });
+                    return Ok(RunResult::AllTasksComplete {
+                        iterations: iteration,
+                    });
                 }
                 IterationResult::Terminated => {
                     debug_log("terminated");
@@ -360,9 +358,13 @@ impl Runner {
                     if let Some(ref mut logger) = self.logger {
                         let _ = logger.log("Session ended: terminated");
                     }
-                    return Ok(RunResult::Stopped { iterations: iteration });
+                    return Ok(RunResult::Stopped {
+                        iterations: iteration,
+                    });
                 }
-                IterationResult::TaskComplete | IterationResult::NoSignal | IterationResult::Timeout => {
+                IterationResult::TaskComplete
+                | IterationResult::NoSignal
+                | IterationResult::Timeout => {
                     debug_log("continuing to next iteration");
                     // Reset should_stop flag - it may have been set by cleanup() during PTY teardown
                     // but that doesn't mean we should stop the entire run loop
@@ -424,7 +426,7 @@ mod tests {
         let flag = runner.stop_flag();
         assert!(!flag.load(Ordering::SeqCst));
 
-        runner.request_stop();
+        flag.store(true, Ordering::SeqCst);
         assert!(flag.load(Ordering::SeqCst));
     }
 
@@ -467,7 +469,9 @@ mod tests {
         };
 
         logger.log_iteration_start(1, 10).unwrap();
-        logger.log_iteration_end(1, &IterationResult::TaskComplete).unwrap();
+        logger
+            .log_iteration_end(1, &IterationResult::TaskComplete)
+            .unwrap();
 
         let content = fs::read_to_string(&log_path).unwrap();
         assert!(content.contains("ITERATION 1/10 START"));
@@ -485,11 +489,21 @@ mod tests {
             file,
         };
 
-        logger.log_iteration_end(1, &IterationResult::TaskComplete).unwrap();
-        logger.log_iteration_end(2, &IterationResult::AllComplete).unwrap();
-        logger.log_iteration_end(3, &IterationResult::NoSignal).unwrap();
-        logger.log_iteration_end(4, &IterationResult::Terminated).unwrap();
-        logger.log_iteration_end(5, &IterationResult::Timeout).unwrap();
+        logger
+            .log_iteration_end(1, &IterationResult::TaskComplete)
+            .unwrap();
+        logger
+            .log_iteration_end(2, &IterationResult::AllComplete)
+            .unwrap();
+        logger
+            .log_iteration_end(3, &IterationResult::NoSignal)
+            .unwrap();
+        logger
+            .log_iteration_end(4, &IterationResult::Terminated)
+            .unwrap();
+        logger
+            .log_iteration_end(5, &IterationResult::Timeout)
+            .unwrap();
 
         let content = fs::read_to_string(&log_path).unwrap();
         assert!(content.contains("TASK_COMPLETE"));

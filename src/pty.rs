@@ -2,13 +2,13 @@ use crate::error::{HydraError, Result};
 use crate::signal::{clear_child_pid, set_child_pid};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::terminal::{self, disable_raw_mode, enable_raw_mode};
-use portable_pty::{native_pty_system, Child, CommandBuilder, PtyPair, PtySize};
+use portable_pty::{Child, CommandBuilder, PtyPair, PtySize, native_pty_system};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -30,7 +30,7 @@ fn debug_log(msg: &str) {
 
 /// Restore terminal to normal mode with fallback reset sequence
 /// This is more robust than just calling disable_raw_mode()
-fn restore_terminal(verbose: bool) {
+fn restore_terminal(_verbose: bool) {
     debug_log("restore_terminal: starting");
 
     // First, try the normal crossterm disable_raw_mode
@@ -48,25 +48,25 @@ fn restore_terminal(verbose: bool) {
     // 6. Exits alternate screen buffer
     // 7. Resets all terminal modes
     let reset_sequence = concat!(
-        "\x11",         // XON (Ctrl+Q) - resume if XOFF stopped terminal
-        "\x18",         // CAN - cancel any partial escape sequence
-        "\x1b[?2026l",  // Disable synchronized output (used by Claude TUI)
-        "\x1b[?1000l",  // Disable mouse click tracking
-        "\x1b[?1002l",  // Disable mouse button tracking
-        "\x1b[?1003l",  // Disable mouse any-event tracking
-        "\x1b[?1006l",  // Disable SGR mouse mode
-        "\x1b[?1015l",  // Disable urxvt mouse mode
-        "\x1b[?2004l",  // Disable bracketed paste mode
-        "\x1b[?1004l",  // Disable focus reporting
-        "\x1b[<u",      // Disable kitty keyboard protocol
-        "\x1b[?1049l",  // Exit alternate screen buffer
-        "\x1b[?1l",     // Reset cursor keys mode
-        "\x1b[?7h",     // Enable line wrapping
-        "\x1b[?25h",    // Show cursor
-        "\x1b[0m",      // Reset attributes
-        "\x1b[r",       // Reset scroll region
-        "\x1b[H",       // Move cursor home
-        "\x1bc",        // Full terminal reset (RIS)
+        "\x11",        // XON (Ctrl+Q) - resume if XOFF stopped terminal
+        "\x18",        // CAN - cancel any partial escape sequence
+        "\x1b[?2026l", // Disable synchronized output (used by Claude TUI)
+        "\x1b[?1000l", // Disable mouse click tracking
+        "\x1b[?1002l", // Disable mouse button tracking
+        "\x1b[?1003l", // Disable mouse any-event tracking
+        "\x1b[?1006l", // Disable SGR mouse mode
+        "\x1b[?1015l", // Disable urxvt mouse mode
+        "\x1b[?2004l", // Disable bracketed paste mode
+        "\x1b[?1004l", // Disable focus reporting
+        "\x1b[<u",     // Disable kitty keyboard protocol
+        "\x1b[?1049l", // Exit alternate screen buffer
+        "\x1b[?1l",    // Reset cursor keys mode
+        "\x1b[?7h",    // Enable line wrapping
+        "\x1b[?25h",   // Show cursor
+        "\x1b[0m",     // Reset attributes
+        "\x1b[r",      // Reset scroll region
+        "\x1b[H",      // Move cursor home
+        "\x1bc",       // Full terminal reset (RIS)
     );
 
     // Try /dev/tty first (direct terminal access)
@@ -202,8 +202,9 @@ impl PtyManager {
 
     /// Spawn Claude in the PTY
     pub fn spawn_claude(&mut self, prompt_path: &Path) -> Result<()> {
-        let pty_pair = self.pty_pair.as_ref()
-            .ok_or_else(|| HydraError::io("PTY already consumed", io::Error::other("PTY pair is None")))?;
+        let pty_pair = self.pty_pair.as_ref().ok_or_else(|| {
+            HydraError::io("PTY already consumed", io::Error::other("PTY pair is None"))
+        })?;
 
         // Build command to run Claude
         let mut cmd = CommandBuilder::new("claude");
@@ -211,15 +212,14 @@ impl PtyManager {
         cmd.arg(prompt_path);
 
         // Set working directory to current directory
-        let cwd = std::env::current_dir()
-            .map_err(|e| HydraError::io("getting current directory", e))?;
+        let cwd =
+            std::env::current_dir().map_err(|e| HydraError::io("getting current directory", e))?;
         cmd.cwd(cwd);
 
         // Spawn the command in the PTY
-        let child = pty_pair
-            .slave
-            .spawn_command(cmd)
-            .map_err(|e| HydraError::io("spawning claude in PTY", io::Error::other(e.to_string())))?;
+        let child = pty_pair.slave.spawn_command(cmd).map_err(|e| {
+            HydraError::io("spawning claude in PTY", io::Error::other(e.to_string()))
+        })?;
 
         // Get the process ID
         if let Some(pid) = child.process_id() {
@@ -234,7 +234,12 @@ impl PtyManager {
     }
 
     /// Run the I/O loop, handling input/output and watching for signals
-    pub fn run_io_loop(&mut self, output_path: &Path, verbose: bool, timeout_seconds: u64) -> Result<PtyResult> {
+    pub fn run_io_loop(
+        &mut self,
+        output_path: &Path,
+        verbose: bool,
+        timeout_seconds: u64,
+    ) -> Result<PtyResult> {
         // Open output file for capturing Claude's output
         let mut output_file = OpenOptions::new()
             .create(true)
@@ -243,8 +248,9 @@ impl PtyManager {
             .open(output_path)
             .map_err(|e| HydraError::io("opening output file", e))?;
 
-        let pty_pair = self.pty_pair.as_ref()
-            .ok_or_else(|| HydraError::io("PTY already consumed", io::Error::other("PTY pair is None")))?;
+        let pty_pair = self.pty_pair.as_ref().ok_or_else(|| {
+            HydraError::io("PTY already consumed", io::Error::other("PTY pair is None"))
+        })?;
 
         // Get PTY reader and writer
         let pty_reader = pty_pair
@@ -268,7 +274,8 @@ impl PtyManager {
 
         // Enable raw mode for stdin
         debug_log("run_io_loop: enabling raw mode");
-        enable_raw_mode().map_err(|e| HydraError::io("enabling raw mode", io::Error::other(e.to_string())))?;
+        enable_raw_mode()
+            .map_err(|e| HydraError::io("enabling raw mode", io::Error::other(e.to_string())))?;
         debug_log("run_io_loop: raw mode enabled");
 
         let result = self.io_loop_inner(
@@ -352,7 +359,10 @@ impl PtyManager {
             // Check for timeout
             if start_time.elapsed() >= timeout_duration {
                 println!();
-                println!("[hydra] Iteration timeout ({} seconds) reached without stop signal, terminating Claude process...", timeout_seconds);
+                println!(
+                    "[hydra] Iteration timeout ({} seconds) reached without stop signal, terminating Claude process...",
+                    timeout_seconds
+                );
                 self.terminate_child();
                 return Ok(PtyResult::Timeout);
             }
@@ -373,14 +383,11 @@ impl PtyManager {
             // Poll for keyboard input
             if event::poll(poll_timeout)
                 .map_err(|e| HydraError::io("polling events", io::Error::other(e.to_string())))?
-            {
-                if let Event::Key(key_event) = event::read()
+                && let Event::Key(key_event) = event::read()
                     .map_err(|e| HydraError::io("reading event", io::Error::other(e.to_string())))?
-                {
-                    if let Some(result) = self.handle_key_event(key_event, pty_writer, verbose)? {
-                        return Ok(result);
-                    }
-                }
+                && let Some(result) = self.handle_key_event(key_event, pty_writer, verbose)?
+            {
+                return Ok(result);
             }
 
             // Check for PTY output (non-blocking via try_recv)
@@ -390,7 +397,9 @@ impl PtyManager {
                     tty_output
                         .write_all(&data)
                         .map_err(|e| HydraError::io("writing to tty", e))?;
-                    tty_output.flush().map_err(|e| HydraError::io("flushing tty", e))?;
+                    tty_output
+                        .flush()
+                        .map_err(|e| HydraError::io("flushing tty", e))?;
 
                     // Write to output file
                     output_file
@@ -426,12 +435,12 @@ impl PtyManager {
                         // Immediately send terminal reset to try to recover before freeze
                         // This is sent BEFORE terminating Claude
                         let emergency_reset = concat!(
-                            "\x18",         // CAN - cancel partial escape
-                            "\x1b[?1000l",  // Disable mouse
-                            "\x1b[?2004l",  // Disable bracketed paste
-                            "\x1b[?1049l",  // Exit alt screen
-                            "\x1b[0m",      // Reset attributes
-                            "\x1b[?25h",    // Show cursor
+                            "\x18",        // CAN - cancel partial escape
+                            "\x1b[?1000l", // Disable mouse
+                            "\x1b[?2004l", // Disable bracketed paste
+                            "\x1b[?1049l", // Exit alt screen
+                            "\x1b[0m",     // Reset attributes
+                            "\x1b[?25h",   // Show cursor
                         );
                         let _ = tty_output.write_all(emergency_reset.as_bytes());
                         let _ = tty_output.flush();
@@ -440,10 +449,14 @@ impl PtyManager {
                         println!();
                         match signal_result {
                             PtyResult::AllComplete => {
-                                println!("[hydra] All tasks complete signal detected, terminating Claude process...");
+                                println!(
+                                    "[hydra] All tasks complete signal detected, terminating Claude process..."
+                                );
                             }
                             PtyResult::TaskComplete => {
-                                println!("[hydra] Task complete signal detected, terminating Claude process...");
+                                println!(
+                                    "[hydra] Task complete signal detected, terminating Claude process..."
+                                );
                             }
                             _ => {}
                         }
@@ -577,7 +590,7 @@ impl PtyManager {
         if let Some(pid) = self.child_pid {
             #[cfg(unix)]
             {
-                use nix::sys::signal::{kill, Signal};
+                use nix::sys::signal::{Signal, kill};
                 use nix::unistd::Pid;
                 let _ = kill(Pid::from_raw(pid as i32), Signal::SIGTERM);
             }
@@ -589,7 +602,7 @@ impl PtyManager {
         if let Some(pid) = self.child_pid {
             #[cfg(unix)]
             {
-                use nix::sys::signal::{kill, Signal};
+                use nix::sys::signal::{Signal, kill};
                 use nix::unistd::Pid;
                 let _ = kill(Pid::from_raw(pid as i32), Signal::SIGKILL);
             }
@@ -713,9 +726,9 @@ fn key_event_to_bytes(event: &KeyEvent) -> Vec<u8> {
         KeyCode::Char(c) => {
             if event.modifiers.contains(KeyModifiers::CONTROL) {
                 // Control characters
-                if c >= 'a' && c <= 'z' {
+                if c.is_ascii_lowercase() {
                     bytes.push((c as u8) - b'a' + 1);
-                } else if c >= 'A' && c <= 'Z' {
+                } else if c.is_ascii_uppercase() {
                     bytes.push((c as u8) - b'A' + 1);
                 }
             } else if event.modifiers.contains(KeyModifiers::ALT) {
@@ -837,8 +850,14 @@ mod tests {
         assert_eq!(strip_ansi_escapes_from_bytes(b"hello world"), "hello world");
 
         // CSI sequences (colors, cursor movement) should be stripped
-        assert_eq!(strip_ansi_escapes_from_bytes(b"\x1b[32mgreen\x1b[0m"), "green");
-        assert_eq!(strip_ansi_escapes_from_bytes(b"\x1b[1;31mbold red\x1b[0m"), "bold red");
+        assert_eq!(
+            strip_ansi_escapes_from_bytes(b"\x1b[32mgreen\x1b[0m"),
+            "green"
+        );
+        assert_eq!(
+            strip_ansi_escapes_from_bytes(b"\x1b[1;31mbold red\x1b[0m"),
+            "bold red"
+        );
 
         // Multiple sequences
         assert_eq!(
@@ -847,18 +866,36 @@ mod tests {
         );
 
         // OSC sequences (title setting, etc.)
-        assert_eq!(strip_ansi_escapes_from_bytes(b"\x1b]0;title\x07text"), "text");
+        assert_eq!(
+            strip_ansi_escapes_from_bytes(b"\x1b]0;title\x07text"),
+            "text"
+        );
 
         // Cursor movement
-        assert_eq!(strip_ansi_escapes_from_bytes(b"\x1b[Hstart\x1b[10;20H"), "start");
+        assert_eq!(
+            strip_ansi_escapes_from_bytes(b"\x1b[Hstart\x1b[10;20H"),
+            "start"
+        );
     }
 
     #[test]
     fn test_bytes_contain_signal() {
-        assert!(bytes_contain_signal(b"###TASK_COMPLETE###", TASK_COMPLETE_BYTES));
-        assert!(bytes_contain_signal(b"prefix###TASK_COMPLETE###suffix", TASK_COMPLETE_BYTES));
-        assert!(!bytes_contain_signal(b"###TASK_INCOMPLET###", TASK_COMPLETE_BYTES));
-        assert!(bytes_contain_signal(b"###ALL_TASKS_COMPLETE###", ALL_COMPLETE_BYTES));
+        assert!(bytes_contain_signal(
+            b"###TASK_COMPLETE###",
+            TASK_COMPLETE_BYTES
+        ));
+        assert!(bytes_contain_signal(
+            b"prefix###TASK_COMPLETE###suffix",
+            TASK_COMPLETE_BYTES
+        ));
+        assert!(!bytes_contain_signal(
+            b"###TASK_INCOMPLET###",
+            TASK_COMPLETE_BYTES
+        ));
+        assert!(bytes_contain_signal(
+            b"###ALL_TASKS_COMPLETE###",
+            ALL_COMPLETE_BYTES
+        ));
     }
 
     #[test]
@@ -873,13 +910,19 @@ mod tests {
 
         // Signal with color codes interspersed
         assert_eq!(
-            manager.check_for_signals_in_bytes(b"output\x1b[1m###ALL_TASKS_COMPLETE###\x1b[0m\n", false),
+            manager.check_for_signals_in_bytes(
+                b"output\x1b[1m###ALL_TASKS_COMPLETE###\x1b[0m\n",
+                false
+            ),
             PtyResult::AllComplete
         );
 
         // Mixed content with cursor movements
         assert_eq!(
-            manager.check_for_signals_in_bytes(b"\x1b[H\x1b[2JDone!\n\x1b[32m###TASK_COMPLETE###\x1b[0m", false),
+            manager.check_for_signals_in_bytes(
+                b"\x1b[H\x1b[2JDone!\n\x1b[32m###TASK_COMPLETE###\x1b[0m",
+                false
+            ),
             PtyResult::TaskComplete
         );
     }

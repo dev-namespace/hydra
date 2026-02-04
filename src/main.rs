@@ -10,10 +10,10 @@ mod skill;
 use clap::Parser;
 use cli::Cli;
 use config::Config;
-use error::{HydraError, Result, EXIT_SUCCESS};
+use error::{EXIT_SUCCESS, HydraError, Result};
 use prompt::{inject_plan_path, resolve_prompt};
 use runner::{RunResult, Runner};
-use skill::{create_skill_with_claude, prompt_yes_no, SkillType};
+use skill::{SkillType, create_skill_with_claude, prompt_yes_no};
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
@@ -49,7 +49,7 @@ fn main() {
         Ok(()) => {
             debug_log("exiting with success");
             std::process::exit(EXIT_SUCCESS)
-        },
+        }
         Err(e) => {
             let exit_code = e.exit_code();
             debug_log(&format!("exiting with error code {}", exit_code));
@@ -69,7 +69,11 @@ fn run(cli: Cli) -> Result<()> {
     config.merge_cli(
         if cli.max != 10 { Some(cli.max) } else { None },
         cli.verbose,
-        if cli.timeout != 1200 { Some(cli.timeout) } else { None },
+        if cli.timeout != 1200 {
+            Some(cli.timeout)
+        } else {
+            None
+        },
     );
 
     if config.verbose {
@@ -109,7 +113,11 @@ fn run(cli: Cli) -> Result<()> {
             // Dry run: show configuration without executing
             println!("Configuration (dry-run):");
             println!("  max_iterations: {}", config.max_iterations);
-            println!("  timeout_seconds: {} ({} minutes)", config.timeout_seconds, config.timeout_seconds / 60);
+            println!(
+                "  timeout_seconds: {} ({} minutes)",
+                config.timeout_seconds,
+                config.timeout_seconds / 60
+            );
             println!("  verbose: {}", config.verbose);
             println!("  stop_file: {}", config.stop_file);
             println!("  prompt_source: {}", resolved.source);
@@ -130,7 +138,10 @@ fn run(cli: Cli) -> Result<()> {
         } else {
             // Print banner and version
             println!("{}", BANNER);
-            println!("                                  hydra v{}", env!("CARGO_PKG_VERSION"));
+            println!(
+                "                                  hydra v{}",
+                env!("CARGO_PKG_VERSION")
+            );
             println!();
 
             // Print the prompt content so user knows what they're sending
@@ -202,7 +213,8 @@ const DEFAULT_PROJECT_PROMPT_TEMPLATE: &str = include_str!("../templates/default
 fn load_prompt_template() -> String {
     let template_path = Config::global_prompt_template_path();
     if template_path.exists() {
-        fs::read_to_string(&template_path).unwrap_or_else(|_| DEFAULT_PROJECT_PROMPT_TEMPLATE.to_string())
+        fs::read_to_string(&template_path)
+            .unwrap_or_else(|_| DEFAULT_PROJECT_PROMPT_TEMPLATE.to_string())
     } else {
         DEFAULT_PROJECT_PROMPT_TEMPLATE.to_string()
     }
@@ -250,7 +262,10 @@ fn init_command(verbose: bool) -> Result<()> {
     update_gitignore(verbose)?;
 
     println!("\nInitialization complete. Edit .hydra/prompt.md with your task instructions.");
-    println!("Customize the template at: {}", Config::global_prompt_template_path().display());
+    println!(
+        "Customize the template at: {}",
+        Config::global_prompt_template_path().display()
+    );
 
     // Prompt for skill setup
     println!();
@@ -314,8 +329,8 @@ fn update_gitignore(verbose: bool) -> Result<()> {
 
     // Check if .gitignore exists and if it already contains .hydra/
     if gitignore_path.exists() {
-        let file = fs::File::open(&gitignore_path)
-            .map_err(|e| HydraError::io("reading .gitignore", e))?;
+        let file =
+            fs::File::open(&gitignore_path).map_err(|e| HydraError::io("reading .gitignore", e))?;
         let reader = std::io::BufReader::new(file);
 
         // Check if .hydra/ is already in .gitignore
@@ -399,8 +414,9 @@ fn install_command() -> Result<()> {
         .map_err(|e| HydraError::io(format!("reading metadata of {}", dest_path.display()), e))?
         .permissions();
     perms.set_mode(0o755);
-    fs::set_permissions(&dest_path, perms)
-        .map_err(|e| HydraError::io(format!("setting permissions on {}", dest_path.display()), e))?;
+    fs::set_permissions(&dest_path, perms).map_err(|e| {
+        HydraError::io(format!("setting permissions on {}", dest_path.display()), e)
+    })?;
 
     // On macOS, re-sign the binary with ad-hoc signature to satisfy Gatekeeper
     // Copying invalidates the original code signature, causing "killed" on execution

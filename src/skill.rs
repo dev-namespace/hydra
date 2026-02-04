@@ -4,7 +4,7 @@ use crate::config::Config;
 use crate::error::{HydraError, Result};
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use crossterm::terminal::{self, disable_raw_mode, enable_raw_mode};
-use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use std::fs::{self, OpenOptions};
 use std::io::{self, BufRead, Read, Write};
 use std::path::PathBuf;
@@ -13,8 +13,10 @@ use std::thread;
 use std::time::Duration;
 
 /// Embedded default skill templates
-const LOCAL_DEV_GUIDE_TEMPLATE: &str = include_str!("../templates/skill-prompts/local-dev-guide.md");
-const DEPLOY_AND_CHECK_TEMPLATE: &str = include_str!("../templates/skill-prompts/deploy-and-check.md");
+const LOCAL_DEV_GUIDE_TEMPLATE: &str =
+    include_str!("../templates/skill-prompts/local-dev-guide.md");
+const DEPLOY_AND_CHECK_TEMPLATE: &str =
+    include_str!("../templates/skill-prompts/deploy-and-check.md");
 const PERMISSIONS_TEMPLATE: &str = include_str!("../templates/skill-prompts/permissions.md");
 const PRECOMMIT_TEMPLATE: &str = include_str!("../templates/skill-prompts/precommit.md");
 
@@ -133,16 +135,6 @@ pub fn prompt_yes_no(prompt: &str) -> Result<bool> {
     Ok(response == "y" || response == "yes")
 }
 
-/// Parse a yes/no response string. This is the core logic extracted for testing.
-///
-/// # Returns
-/// * `true` if input is "y" or "yes" (case-insensitive)
-/// * `false` for any other input including empty string
-fn parse_yes_no_response(input: &str) -> bool {
-    let response = input.trim().to_lowercase();
-    response == "y" || response == "yes"
-}
-
 /// Create a Claude Code skill by spawning Claude in interactive mode.
 ///
 /// This function:
@@ -163,13 +155,15 @@ pub fn create_skill_with_claude(skill_type: SkillType, verbose: bool) -> Result<
 
     // For skills (not permissions or precommit), create the skill directory
     if skill_type.creates_skill_directory() {
-        let skill_dir = PathBuf::from(".claude")
-            .join("skills")
-            .join(skill_name);
+        let skill_dir = PathBuf::from(".claude").join("skills").join(skill_name);
 
         if !skill_dir.exists() {
-            fs::create_dir_all(&skill_dir)
-                .map_err(|e| HydraError::io(format!("creating skill directory {}", skill_dir.display()), e))?;
+            fs::create_dir_all(&skill_dir).map_err(|e| {
+                HydraError::io(
+                    format!("creating skill directory {}", skill_dir.display()),
+                    e,
+                )
+            })?;
             if verbose {
                 println!("Created {}", skill_dir.display());
             }
@@ -182,8 +176,12 @@ pub fn create_skill_with_claude(skill_type: SkillType, verbose: bool) -> Result<
     // Write the prompt to a temporary file
     let temp_dir = std::env::temp_dir();
     let prompt_file = temp_dir.join(format!("hydra-skill-{}.md", skill_name));
-    fs::write(&prompt_file, &prompt_content)
-        .map_err(|e| HydraError::io(format!("writing skill prompt to {}", prompt_file.display()), e))?;
+    fs::write(&prompt_file, &prompt_content).map_err(|e| {
+        HydraError::io(
+            format!("writing skill prompt to {}", prompt_file.display()),
+            e,
+        )
+    })?;
 
     if verbose {
         println!("Prompt written to: {}", prompt_file.display());
@@ -212,7 +210,7 @@ pub fn create_skill_with_claude(skill_type: SkillType, verbose: bool) -> Result<
 enum SkillPtyMessage {
     Data(Vec<u8>),
     Closed,
-    Error(String),
+    Error,
 }
 
 /// Spawn Claude in interactive (headful) mode and wait for it to complete.
@@ -242,8 +240,8 @@ fn spawn_claude_interactive(prompt_path: &PathBuf, verbose: bool) -> Result<()> 
     cmd.arg(prompt_path);
 
     // Set working directory to current directory
-    let cwd = std::env::current_dir()
-        .map_err(|e| HydraError::io("getting current directory", e))?;
+    let cwd =
+        std::env::current_dir().map_err(|e| HydraError::io("getting current directory", e))?;
     cmd.cwd(cwd);
 
     // Spawn the command in the PTY
@@ -296,10 +294,7 @@ fn spawn_claude_interactive(prompt_path: &PathBuf, verbose: bool) -> Result<()> 
 }
 
 /// PTY reader thread - reads from PTY and sends data to main thread
-fn skill_pty_reader_thread(
-    mut reader: Box<dyn Read + Send>,
-    tx: Sender<SkillPtyMessage>,
-) {
+fn skill_pty_reader_thread(mut reader: Box<dyn Read + Send>, tx: Sender<SkillPtyMessage>) {
     let mut buf = [0u8; 4096];
 
     loop {
@@ -315,8 +310,8 @@ fn skill_pty_reader_thread(
                     break;
                 }
             }
-            Err(e) => {
-                let _ = tx.send(SkillPtyMessage::Error(e.to_string()));
+            Err(_) => {
+                let _ = tx.send(SkillPtyMessage::Error);
                 break;
             }
         }
@@ -340,20 +335,18 @@ fn skill_io_loop(
         // Poll for keyboard input
         if event::poll(poll_timeout)
             .map_err(|e| HydraError::io("polling events", io::Error::other(e.to_string())))?
-        {
-            if let Event::Key(key_event) = event::read()
+            && let Event::Key(key_event) = event::read()
                 .map_err(|e| HydraError::io("reading event", io::Error::other(e.to_string())))?
-            {
-                // Forward keys to PTY
-                let bytes = skill_key_event_to_bytes(&key_event);
-                if !bytes.is_empty() {
-                    pty_writer
-                        .write_all(&bytes)
-                        .map_err(|e| HydraError::io("writing to PTY", e))?;
-                    pty_writer
-                        .flush()
-                        .map_err(|e| HydraError::io("flushing PTY", e))?;
-                }
+        {
+            // Forward keys to PTY
+            let bytes = skill_key_event_to_bytes(&key_event);
+            if !bytes.is_empty() {
+                pty_writer
+                    .write_all(&bytes)
+                    .map_err(|e| HydraError::io("writing to PTY", e))?;
+                pty_writer
+                    .flush()
+                    .map_err(|e| HydraError::io("flushing PTY", e))?;
             }
         }
 
@@ -364,13 +357,15 @@ fn skill_io_loop(
                 tty_output
                     .write_all(&data)
                     .map_err(|e| HydraError::io("writing to tty", e))?;
-                tty_output.flush().map_err(|e| HydraError::io("flushing tty", e))?;
+                tty_output
+                    .flush()
+                    .map_err(|e| HydraError::io("flushing tty", e))?;
             }
             Ok(SkillPtyMessage::Closed) => {
                 // PTY closed - Claude exited
                 return Ok(());
             }
-            Ok(SkillPtyMessage::Error(_)) => {
+            Ok(SkillPtyMessage::Error) => {
                 // Error reading from PTY - Claude likely exited
                 return Ok(());
             }
@@ -393,9 +388,9 @@ fn skill_key_event_to_bytes(event: &crossterm::event::KeyEvent) -> Vec<u8> {
         KeyCode::Char(c) => {
             if event.modifiers.contains(KeyModifiers::CONTROL) {
                 // Control characters
-                if c >= 'a' && c <= 'z' {
+                if c.is_ascii_lowercase() {
                     bytes.push((c as u8) - b'a' + 1);
-                } else if c >= 'A' && c <= 'Z' {
+                } else if c.is_ascii_uppercase() {
                     bytes.push((c as u8) - b'A' + 1);
                 }
             } else if event.modifiers.contains(KeyModifiers::ALT) {
@@ -448,23 +443,23 @@ fn skill_key_event_to_bytes(event: &crossterm::event::KeyEvent) -> Vec<u8> {
 fn restore_terminal_for_skill() {
     // Comprehensive reset sequence
     let reset_sequence = concat!(
-        "\x11",         // XON (Ctrl+Q) - resume if XOFF stopped terminal
-        "\x18",         // CAN - cancel any partial escape sequence
-        "\x1b[?2026l",  // Disable synchronized output (used by Claude TUI)
-        "\x1b[?1000l",  // Disable mouse click tracking
-        "\x1b[?1002l",  // Disable mouse button tracking
-        "\x1b[?1003l",  // Disable mouse any-event tracking
-        "\x1b[?1006l",  // Disable SGR mouse mode
-        "\x1b[?1015l",  // Disable urxvt mouse mode
-        "\x1b[?2004l",  // Disable bracketed paste mode
-        "\x1b[?1004l",  // Disable focus reporting
-        "\x1b[<u",      // Disable kitty keyboard protocol
-        "\x1b[?1049l",  // Exit alternate screen buffer
-        "\x1b[?1l",     // Reset cursor keys mode
-        "\x1b[?7h",     // Enable line wrapping
-        "\x1b[?25h",    // Show cursor
-        "\x1b[0m",      // Reset attributes
-        "\x1b[r",       // Reset scroll region
+        "\x11",        // XON (Ctrl+Q) - resume if XOFF stopped terminal
+        "\x18",        // CAN - cancel any partial escape sequence
+        "\x1b[?2026l", // Disable synchronized output (used by Claude TUI)
+        "\x1b[?1000l", // Disable mouse click tracking
+        "\x1b[?1002l", // Disable mouse button tracking
+        "\x1b[?1003l", // Disable mouse any-event tracking
+        "\x1b[?1006l", // Disable SGR mouse mode
+        "\x1b[?1015l", // Disable urxvt mouse mode
+        "\x1b[?2004l", // Disable bracketed paste mode
+        "\x1b[?1004l", // Disable focus reporting
+        "\x1b[<u",     // Disable kitty keyboard protocol
+        "\x1b[?1049l", // Exit alternate screen buffer
+        "\x1b[?1l",    // Reset cursor keys mode
+        "\x1b[?7h",    // Enable line wrapping
+        "\x1b[?25h",   // Show cursor
+        "\x1b[0m",     // Reset attributes
+        "\x1b[r",      // Reset scroll region
     );
 
     // Try /dev/tty first (direct terminal access)
@@ -514,10 +509,22 @@ mod tests {
 
     #[test]
     fn test_skill_type_prompt_text() {
-        assert_eq!(SkillType::Permissions.prompt_text(), "Configure Claude Code permissions?");
-        assert_eq!(SkillType::LocalDevGuide.prompt_text(), "Set up local-dev-guide skill?");
-        assert_eq!(SkillType::DeployAndCheck.prompt_text(), "Set up deploy-and-check skill?");
-        assert_eq!(SkillType::Precommit.prompt_text(), "Set up precommit hooks?");
+        assert_eq!(
+            SkillType::Permissions.prompt_text(),
+            "Configure Claude Code permissions?"
+        );
+        assert_eq!(
+            SkillType::LocalDevGuide.prompt_text(),
+            "Set up local-dev-guide skill?"
+        );
+        assert_eq!(
+            SkillType::DeployAndCheck.prompt_text(),
+            "Set up deploy-and-check skill?"
+        );
+        assert_eq!(
+            SkillType::Precommit.prompt_text(),
+            "Set up precommit hooks?"
+        );
     }
 
     #[test]
@@ -574,39 +581,5 @@ mod tests {
         let path = SkillType::LocalDevGuide.override_template_path();
         assert!(path.ends_with("local-dev-guide.md"));
         assert!(path.to_string_lossy().contains("skill-templates"));
-    }
-
-    #[test]
-    fn test_parse_yes_no_response_yes() {
-        assert!(parse_yes_no_response("y"));
-        assert!(parse_yes_no_response("Y"));
-        assert!(parse_yes_no_response("yes"));
-        assert!(parse_yes_no_response("YES"));
-        assert!(parse_yes_no_response("Yes"));
-        assert!(parse_yes_no_response("  y  ")); // with whitespace
-        assert!(parse_yes_no_response("  yes  "));
-    }
-
-    #[test]
-    fn test_parse_yes_no_response_no() {
-        assert!(!parse_yes_no_response("")); // empty (Enter pressed)
-        assert!(!parse_yes_no_response("n"));
-        assert!(!parse_yes_no_response("N"));
-        assert!(!parse_yes_no_response("no"));
-        assert!(!parse_yes_no_response("NO"));
-        assert!(!parse_yes_no_response("No"));
-        assert!(!parse_yes_no_response("  n  ")); // with whitespace
-        assert!(!parse_yes_no_response("  no  "));
-    }
-
-    #[test]
-    fn test_parse_yes_no_response_invalid() {
-        // Any unrecognized input should be treated as No
-        assert!(!parse_yes_no_response("yep"));
-        assert!(!parse_yes_no_response("nope"));
-        assert!(!parse_yes_no_response("maybe"));
-        assert!(!parse_yes_no_response("1"));
-        assert!(!parse_yes_no_response("true"));
-        assert!(!parse_yes_no_response("yy"));
     }
 }

@@ -1,7 +1,7 @@
-use nix::sys::signal::{killpg, Signal};
+use nix::sys::signal::{Signal, killpg};
 use nix::unistd::Pid;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, Ordering};
 
 /// Signal state constants
 const SIGNAL_NONE: u8 = 0;
@@ -42,21 +42,6 @@ fn force_kill_child_process_group() {
     }
 }
 
-/// Check if an immediate exit signal was received
-pub fn is_immediate_exit() -> bool {
-    SIGNAL_RECEIVED.load(Ordering::SeqCst) == SIGNAL_INT
-}
-
-/// Check if a graceful shutdown signal was received
-pub fn is_graceful_shutdown() -> bool {
-    SIGNAL_RECEIVED.load(Ordering::SeqCst) == SIGNAL_TERM
-}
-
-/// Check if any signal was received
-pub fn any_signal_received() -> bool {
-    SIGNAL_RECEIVED.load(Ordering::SeqCst) != SIGNAL_NONE
-}
-
 /// Handle interrupt (called from signal handler)
 fn handle_interrupt(stop_flag: &Arc<AtomicBool>) {
     let current = SIGNAL_RECEIVED.load(Ordering::SeqCst);
@@ -67,7 +52,9 @@ fn handle_interrupt(stop_flag: &Arc<AtomicBool>) {
         stop_flag.store(true, Ordering::SeqCst);
         // Kill the child process group immediately so Claude stops
         kill_child_process_group();
-        eprintln!("\n[hydra] Received interrupt, finishing current iteration... (press Ctrl+C again to force quit)");
+        eprintln!(
+            "\n[hydra] Received interrupt, finishing current iteration... (press Ctrl+C again to force quit)"
+        );
     } else {
         // Second signal - immediate exit
         SIGNAL_RECEIVED.store(SIGNAL_INT, Ordering::SeqCst);

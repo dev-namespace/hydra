@@ -10,7 +10,9 @@ pub const EXIT_ERROR: i32 = 2;
 #[derive(Error, Debug)]
 pub enum HydraError {
     /// No prompt file found at any priority level
-    #[error("No prompt file found. Searched:\n  - CLI --prompt flag\n  - ./.hydra/prompt.md\n  - ./prompt.md\n  - ~/.hydra/default-prompt.md")]
+    #[error(
+        "No prompt file found. Searched:\n  - CLI --prompt flag\n  - ./.hydra/prompt.md\n  - ./prompt.md\n  - ~/.hydra/default-prompt.md"
+    )]
     NoPromptFound,
 
     /// Prompt file specified but doesn't exist
@@ -18,7 +20,9 @@ pub enum HydraError {
     PromptNotFound(PathBuf),
 
     /// Plan file specified but doesn't exist
-    #[error("Plan file not found: {0}\n\nMake sure the implementation plan file exists at the specified path.")]
+    #[error(
+        "Plan file not found: {0}\n\nMake sure the implementation plan file exists at the specified path."
+    )]
     PlanNotFound(PathBuf),
 
     /// Config file parse error
@@ -46,14 +50,17 @@ pub enum HydraError {
     GracefulStop,
 
     /// Max iterations reached
+    #[allow(dead_code)]
     #[error("Max iterations ({0}) reached")]
     MaxIterations(u32),
 
     /// Failed to spawn subprocess
+    #[allow(dead_code)]
     #[error("Failed to spawn subprocess: {0}")]
     SpawnFailed(#[source] std::io::Error),
 
     /// Subprocess exited with error
+    #[allow(dead_code)]
     #[error("Subprocess exited with code {0}")]
     SubprocessFailed(i32),
 }
