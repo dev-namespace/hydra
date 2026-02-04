@@ -19,3 +19,11 @@ Claude Code skills, local-dev-guide, deploy-and-check, hydra init extension, ski
 **Source**: `src/main.rs` (init_command), `src/skill.rs`, `src/pty.rs`, `templates/skill-prompts/`
 
 ---
+
+## [TUI Mode](./tui-mode.md)
+
+Multi-tab interface, parallel Claude instances, ratatui, tab management, Ctrl+T new tab, Ctrl+W close tab, Ctrl+1-9 switch tabs, tab bar, multiple PTY, concurrent sessions, split view, terminal multiplexer, tmux-like, screen-like.
+
+**Source**: `src/tui/` (mod.rs, app.rs, ui.rs, input.rs)
+
+---
