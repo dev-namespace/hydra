@@ -46,13 +46,19 @@ repos:
         pass_filenames: false
 ```
 
-4. **Install the git hook** by running:
+4. **Ask for confirmation** before installing:
+   - Show the user the generated `.pre-commit-config.yaml` content
+   - Ask: "Does this look good? [y/N]"
+   - If user says yes, proceed to install
+   - If user says no or requests changes, update the config accordingly and ask again
+
+5. **Install the git hook** (only after user confirms) by running:
 ```bash
 prek install
 ```
 This creates `.git/hooks/pre-commit` which executes the hooks defined in `.pre-commit-config.yaml`.
 
-5. **Update CLAUDE.md** (create if needed) with a brief note:
+6. **Update CLAUDE.md** (create if needed) with a brief note:
 
 ```markdown
 ## Precommit Hooks

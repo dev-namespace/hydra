@@ -99,7 +99,9 @@ The `disable-model-invocation: true` ensures users invoke these manually via `/l
 ### Precommit Setup
 
 - Users are prompted "Set up precommit hooks? [y/N]" after skill prompts
-- Claude analyzes the codebase and sets up [prek](https://github.com/j178/prek) hooks
+- Claude analyzes the codebase and generates a `.pre-commit-config.yaml`
+- Claude shows the generated config and asks for confirmation before running `prek install`
+- Users can review the config and request changes before installation proceeds
 - Users can customize the precommit prompt via `~/.hydra/skill-templates/precommit.md`
 
 ### Precommit Hook Requirements
