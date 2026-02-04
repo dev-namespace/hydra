@@ -172,15 +172,19 @@ pub struct PtyManager {
 }
 
 impl PtyManager {
-    /// Create a new PTY manager
+    /// Create a new PTY manager with automatic terminal size detection
     pub fn new(should_stop: Arc<AtomicBool>) -> Result<Self> {
         // Get terminal size
         let (cols, rows) = terminal::size().unwrap_or((80, 24));
+        Self::new_with_size(should_stop, rows, cols)
+    }
 
+    /// Create a new PTY manager with explicit size (for TUI mode)
+    pub fn new_with_size(should_stop: Arc<AtomicBool>, rows: u16, cols: u16) -> Result<Self> {
         // Create PTY system
         let pty_system = native_pty_system();
 
-        // Create PTY pair with current terminal size
+        // Create PTY pair with specified size
         let pty_pair = pty_system
             .openpty(PtySize {
                 rows,
@@ -198,6 +202,22 @@ impl PtyManager {
             child: None,
             reader_thread: None,
         })
+    }
+
+    /// Resize the PTY window (notifies the child process of new dimensions)
+    pub fn resize(&self, rows: u16, cols: u16) -> Result<()> {
+        if let Some(ref pty_pair) = self.pty_pair {
+            pty_pair
+                .master
+                .resize(PtySize {
+                    rows,
+                    cols,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                })
+                .map_err(|e| HydraError::io("resizing PTY", io::Error::other(e.to_string())))?;
+        }
+        Ok(())
     }
 
     /// Spawn Claude in the PTY
@@ -585,8 +605,27 @@ impl PtyManager {
         PtyResult::NoSignal
     }
 
+    /// Take the PTY reader and writer for external use (TUI mode)
+    /// This consumes the reader/writer, so run_io_loop cannot be used after this
+    pub fn take_reader_writer(&mut self) -> Result<(Box<dyn Read + Send>, Box<dyn Write + Send>)> {
+        let pty_pair = self.pty_pair.as_ref().ok_or_else(|| {
+            HydraError::io("PTY already consumed", io::Error::other("PTY pair is None"))
+        })?;
+
+        let reader = pty_pair
+            .master
+            .try_clone_reader()
+            .map_err(|e| HydraError::io("cloning PTY reader", io::Error::other(e.to_string())))?;
+        let writer = pty_pair
+            .master
+            .take_writer()
+            .map_err(|e| HydraError::io("taking PTY writer", io::Error::other(e.to_string())))?;
+
+        Ok((reader, writer))
+    }
+
     /// Terminate the child process gracefully
-    fn terminate_child(&self) {
+    pub fn terminate_child(&self) {
         if let Some(pid) = self.child_pid {
             #[cfg(unix)]
             {

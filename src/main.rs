@@ -6,6 +6,7 @@ mod pty;
 mod runner;
 mod signal;
 mod skill;
+mod tui;
 
 use clap::Parser;
 use cli::Cli;
@@ -85,6 +86,19 @@ fn run(cli: Cli) -> Result<()> {
         install_command()
     } else if cli.is_init() {
         init_command(config.verbose)
+    } else if cli.is_tui() {
+        // TUI mode
+        let mut resolved = resolve_prompt(cli.prompt.as_ref())?;
+
+        // If a plan file is provided in tui subcommand, inject it
+        if let Some(plan_path) = cli.tui_plan() {
+            if !plan_path.exists() {
+                return Err(HydraError::PlanNotFound(plan_path.clone()));
+            }
+            resolved.content = inject_plan_path(&resolved.content, plan_path);
+        }
+
+        tui::run_tui(config, resolved)
     } else {
         // Resolve prompt file according to priority chain
         let mut resolved = resolve_prompt(cli.prompt.as_ref())?;

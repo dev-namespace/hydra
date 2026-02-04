@@ -51,12 +51,33 @@ pub struct Cli {
 pub enum Command {
     /// Initialize .hydra/ directory in current project
     Init,
+
+    /// Start TUI mode with multi-tab interface
+    Tui {
+        /// Optional path to implementation plan file
+        #[arg(value_name = "PLAN")]
+        plan: Option<std::path::PathBuf>,
+    },
 }
 
 impl Cli {
     /// Check if this is an init command
     pub fn is_init(&self) -> bool {
         matches!(self.command, Some(Command::Init))
+    }
+
+    /// Check if this is a tui command
+    pub fn is_tui(&self) -> bool {
+        matches!(self.command, Some(Command::Tui { .. }))
+    }
+
+    /// Get the plan path from the tui subcommand (if any)
+    pub fn tui_plan(&self) -> Option<&std::path::PathBuf> {
+        if let Some(Command::Tui { plan }) = &self.command {
+            plan.as_ref()
+        } else {
+            None
+        }
     }
 
     /// Check if this is an install command

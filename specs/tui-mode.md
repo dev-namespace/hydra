@@ -10,10 +10,10 @@ Multi-tab interface for running parallel Claude PTY instances.
 - TUI starts with one tab already running Claude (with plan if provided)
 
 ### Tab Management
-- Users can have up to 9 concurrent tabs (numbered 1-9)
-- Users can create new tabs with Ctrl+T (spawns Claude with same plan/prompt as initial tab)
-- Users can close active tab with Ctrl+W
-- Users can switch tabs with Ctrl+1 through Ctrl+9
+- Users can have up to 7 concurrent tabs (numbered 1-7)
+- Users can create new tabs with Ctrl+O (spawns Claude with same plan/prompt as initial tab)
+- Users can close active tab with F8
+- Users can switch tabs with F1 through F7
 - Users can cycle tabs with Ctrl+Tab (forward) and Ctrl+Shift+Tab (backward)
 
 ### Display
@@ -44,16 +44,16 @@ hydra tui [PLAN] [OPTIONS]    # Start TUI mode (plan is optional)
 Options inherited from main command: `--prompt`, `--max`, `--timeout`, `--verbose`
 
 ### Limits
-- Maximum 9 tabs
+- Maximum 7 tabs
 - Tab bar always visible at top
 - Keybindings:
-  - Ctrl+1-9: Switch to tab N
+  - F1-F7: Switch to tab N
   - Ctrl+Tab: Next tab
   - Ctrl+Shift+Tab: Previous tab
-  - Ctrl+T: New tab
-  - Ctrl+W: Close active tab
+  - Ctrl+O: New tab
+  - F8: Close active tab
   - Ctrl+C: Kill active tab's Claude (not exit TUI)
-- Exit TUI: Close all tabs or Ctrl+Q
+- Exit TUI: Close all tabs or F9
 
 ## Architecture
 

@@ -22,7 +22,7 @@ Claude Code skills, local-dev-guide, deploy-and-check, hydra init extension, ski
 
 ## [TUI Mode](./tui-mode.md)
 
-Multi-tab interface, parallel Claude instances, ratatui, tab management, Ctrl+T new tab, Ctrl+W close tab, Ctrl+1-9 switch tabs, tab bar, multiple PTY, concurrent sessions, split view, terminal multiplexer, tmux-like, screen-like.
+Multi-tab interface, parallel Claude instances, ratatui, tab management, Ctrl+O new tab, F8 close tab, F1-F7 switch tabs, F9 exit, tab bar, multiple PTY, concurrent sessions, split view, terminal multiplexer, tmux-like, screen-like.
 
 **Source**: `src/tui/` (mod.rs, app.rs, ui.rs, input.rs)
 
