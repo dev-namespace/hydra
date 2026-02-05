@@ -169,6 +169,9 @@ pub struct PtyManager {
     child_pid: Option<u32>,
     child: Option<Box<dyn Child + Send + Sync>>,
     reader_thread: Option<JoinHandle<()>>,
+    /// Whether this PtyManager owns the terminal (should restore on drop)
+    /// In TUI mode, the TUI owns the terminal, not individual PtyManagers
+    owns_terminal: bool,
 }
 
 impl PtyManager {
@@ -201,6 +204,7 @@ impl PtyManager {
             child_pid: None,
             child: None,
             reader_thread: None,
+            owns_terminal: true, // Default: owns terminal (standalone mode)
         })
     }
 
@@ -606,7 +610,8 @@ impl PtyManager {
     }
 
     /// Take the PTY reader and writer for external use (TUI mode)
-    /// This consumes the reader/writer, so run_io_loop cannot be used after this
+    /// This consumes the reader/writer, so run_io_loop cannot be used after this.
+    /// Also marks this PtyManager as not owning the terminal (TUI owns it).
     pub fn take_reader_writer(&mut self) -> Result<(Box<dyn Read + Send>, Box<dyn Write + Send>)> {
         let pty_pair = self.pty_pair.as_ref().ok_or_else(|| {
             HydraError::io("PTY already consumed", io::Error::other("PTY pair is None"))
@@ -620,6 +625,9 @@ impl PtyManager {
             .master
             .take_writer()
             .map_err(|e| HydraError::io("taking PTY writer", io::Error::other(e.to_string())))?;
+
+        // In TUI mode, the TUI owns the terminal, not this PtyManager
+        self.owns_terminal = false;
 
         Ok((reader, writer))
     }
@@ -752,8 +760,11 @@ impl Drop for PtyManager {
             // Dropping detaches the thread - it will be killed on process exit
         }
 
-        // Make sure terminal is restored to normal mode
-        restore_terminal(false);
+        // Only restore terminal if this PtyManager owns it (standalone mode)
+        // In TUI mode, the TUI owns the terminal and handles cleanup
+        if self.owns_terminal {
+            restore_terminal(false);
+        }
     }
 }
 
@@ -862,6 +873,7 @@ mod tests {
             child_pid: None,
             child: None,
             reader_thread: None,
+            owns_terminal: false, // Tests don't own terminal
         }
     }
 
@@ -1024,6 +1036,7 @@ mod tests {
             child_pid: None,
             child: None,
             reader_thread: Some(blocking_thread),
+            owns_terminal: false, // Tests don't own terminal
         };
 
         // Time the cleanup - it should complete almost immediately since we don't wait
@@ -1065,6 +1078,7 @@ mod tests {
             child_pid: None,
             child: None,
             reader_thread: Some(blocking_thread),
+            owns_terminal: false, // Tests don't own terminal
         };
 
         // Time the drop - it should complete almost immediately
@@ -1091,6 +1105,7 @@ mod tests {
             child_pid: None,
             child: None,
             reader_thread: None,
+            owns_terminal: false, // Tests don't own terminal
         };
 
         assert!(!should_stop.load(Ordering::SeqCst));
