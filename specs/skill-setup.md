@@ -7,9 +7,8 @@ Extension to `hydra init` that optionally creates Claude Code skills for local d
 ### During `hydra init`
 
 - Users are prompted "Configure Claude Code permissions? [y/N]"
-- Users are prompted "Set up local-dev-guide skill? [y/N]" after permissions
-- Users are prompted "Set up deploy-and-check skill? [y/N]" after local-dev-guide
-- Users are prompted "Set up precommit hooks? [y/N]" after deploy-and-check
+- Users are prompted "Set up dev skills (local-dev-guide + deploy-and-check)? [y/N]" after permissions
+- Users are prompted "Set up precommit hooks? [y/N]" after dev skills
 - Users are prompted "Add CLAUDE.md instructions (browser automation, specs)? [y/N]" after precommit
 - Users are prompted "Create .hydra/ directory with prompt template? [y/N]" at the end
 - Users can decline any prompt by pressing Enter or typing "n"
@@ -30,9 +29,8 @@ Extension to `hydra init` that optionally creates Claude Code skills for local d
 
 ### Skill Templates
 
-- Users can customize skill creation prompts via `~/.hydra/skill-templates/local-dev-guide.md`
-- Users can customize skill creation prompts via `~/.hydra/skill-templates/deploy-and-check.md`
 - Users can customize permissions prompt via `~/.hydra/skill-templates/permissions.md`
+- Users can customize dev skills prompt via `~/.hydra/skill-templates/dev-skills.md`
 - Users can customize precommit prompt via `~/.hydra/skill-templates/precommit.md`
 - If template files don't exist, embedded defaults are used
 
@@ -41,7 +39,7 @@ Extension to `hydra init` that optionally creates Claude Code skills for local d
 ### Prompt Behavior
 
 - Prompts default to "No" (pressing Enter skips)
-- Steps are executed sequentially: permissions → local-dev-guide → deploy-and-check → precommit → CLAUDE.md instructions → .hydra/ directory
+- Steps are executed sequentially: permissions → dev skills → precommit → CLAUDE.md instructions → .hydra/ directory
 - If user declines all, init completes normally with no additional output
 
 ### Permissions Setup
@@ -60,43 +58,26 @@ Extension to `hydra init` that optionally creates Claude Code skills for local d
   1. Analyze the repository structure and configuration files
   2. Test non-destructive commands (build, dev server, SSH connectivity)
   3. Ask user questions as needed to fill in gaps
-  4. Create the skill file at `.claude/skills/<skill-name>/SKILL.md`
+  4. Create the skill file(s) at `.claude/skills/<skill-name>/SKILL.md`
 - Claude must NOT perform destructive actions (deploy, delete, etc.)
 
-### Skill Output Location
+### Dev Skills (Combined)
 
-- Skills are created in `.claude/skills/<skill-name>/SKILL.md` (project-specific)
-- The `.claude/skills/` directory is created if it doesn't exist
+- Single prompt instructs Claude to create both skills **in parallel using subagents**
+- Both `.claude/skills/local-dev-guide/` and `.claude/skills/deploy-and-check/` directories are pre-created
+- Each skill file must be **max 30 lines** (including frontmatter), bullet points only
 
-### local-dev-guide Skill Content
+### local-dev-guide Content
 
-The created skill should be a VERY succinct but clear guide containing:
-- Build command(s)
-- Dev server command(s)
-- Docker/docker-compose instructions (if applicable)
-- Commands for manual checks
-- Test credentials or seed data info (if applicable)
+- Build command(s), dev server, docker/compose (if applicable), test commands, test credentials/seed data
 
-### deploy-and-check Skill Content
+### deploy-and-check Content
 
-The created skill should be a VERY succinct but clear guide containing:
-- How to trigger a deployment
-- How to read build and deploy logs
-- How to SSH into production machines
-- How to verify the deployment succeeded
+- How to trigger deployment, read logs, SSH into production, verify success
 
 ### Skill Format
 
-Skills follow Claude Code skill format with frontmatter:
-```yaml
----
-name: local-dev-guide
-description: Quick reference for local development commands
-disable-model-invocation: true
----
-```
-
-The `disable-model-invocation: true` ensures users invoke these manually via `/local-dev-guide` or `/deploy-and-check`.
+Skills follow Claude Code skill format with frontmatter and `disable-model-invocation: true` so users invoke manually via `/local-dev-guide` or `/deploy-and-check`.
 
 ### Precommit Setup
 
@@ -171,6 +152,5 @@ Fast parallel hooks via prek: lint, typecheck, format-check. Commit checkpoints 
 - [src/pty.rs](../src/pty.rs) - PTY infrastructure for spawning Claude
 - [templates/skill-prompts/](../templates/skill-prompts/) - Embedded default prompts
   - `permissions.md` - Claude Code permissions setup
-  - `local-dev-guide.md` - Local development skill
-  - `deploy-and-check.md` - Deployment skill
+  - `dev-skills.md` - Combined local-dev-guide + deploy-and-check (parallel subagents)
   - `precommit.md` - Precommit hooks setup with prek
