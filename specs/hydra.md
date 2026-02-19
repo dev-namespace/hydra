@@ -19,7 +19,7 @@ Automated Claude Code task runner. Executes tasks from implementation plans in a
 - If the plan file path is provided but the file doesn't exist, hydra exits with a helpful error
 
 ### Project Setup
-- Users can run `hydra init` to create a `.hydra/` directory in their project
+- Users can run `hydra init` to interactively set up skills and optionally create a `.hydra/` directory
 - Users can run `hydra --install` to install the binary to `~/.local/bin`
 
 ### Prompt Configuration

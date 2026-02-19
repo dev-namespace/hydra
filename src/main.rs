@@ -234,8 +234,22 @@ fn load_prompt_template() -> String {
     }
 }
 
-/// Initialize .hydra/ directory structure in current project
+/// Initialize project with optional skill setup and .hydra/ directory creation
 fn init_command(verbose: bool) -> Result<()> {
+    // Prompt for skill setup first
+    setup_skills(verbose)?;
+
+    // Prompt for .hydra/ directory creation at the end
+    println!();
+    if prompt_yes_no("Create .hydra/ directory with prompt template?")? {
+        create_hydra_directory(verbose)?;
+    }
+
+    Ok(())
+}
+
+/// Create .hydra/ directory structure and prompt template
+fn create_hydra_directory(verbose: bool) -> Result<()> {
     let hydra_dir = Config::local_hydra_dir();
     let logs_dir = Config::logs_dir();
     let prompt_path = Config::local_prompt_path();
@@ -247,7 +261,6 @@ fn init_command(verbose: bool) -> Result<()> {
     if hydra_dir.exists() {
         println!(".hydra/ directory already exists");
     } else {
-        // Create .hydra/ directory
         fs::create_dir_all(&hydra_dir)
             .map_err(|e| HydraError::io(format!("creating {}", hydra_dir.display()), e))?;
         println!("Created {}", hydra_dir.display());
@@ -275,15 +288,11 @@ fn init_command(verbose: bool) -> Result<()> {
     // Update .gitignore
     update_gitignore(verbose)?;
 
-    println!("\nInitialization complete. Edit .hydra/prompt.md with your task instructions.");
+    println!("\nEdit .hydra/prompt.md with your task instructions.");
     println!(
         "Customize the template at: {}",
         Config::global_prompt_template_path().display()
     );
-
-    // Prompt for skill setup
-    println!();
-    setup_skills(verbose)?;
 
     Ok(())
 }
@@ -310,6 +319,55 @@ fn setup_skills(verbose: bool) -> Result<()> {
         create_skill_with_claude(SkillType::Precommit, verbose)?;
     }
 
+    // Prompt for browser automation instructions in CLAUDE.md
+    if prompt_yes_no("Add browser automation instructions to CLAUDE.md?")? {
+        add_browser_instructions_to_claude_md(verbose)?;
+    }
+
+    Ok(())
+}
+
+/// Append browser automation instructions to CLAUDE.md
+fn add_browser_instructions_to_claude_md(verbose: bool) -> Result<()> {
+    let claude_md_path = PathBuf::from("CLAUDE.md");
+    let section = "\n## Browser Automation\n\n\
+        Use `agent-browser` for web automation. Run `agent-browser --help` for all commands.\n\n\
+        Core workflow:\n\
+        1. `agent-browser open <url>` - Navigate to page\n\
+        2. `agent-browser snapshot -i` - Get interactive elements with refs (@e1, @e2)\n\
+        3. `agent-browser click @e1` / `fill @e2 \"text\"` - Interact using refs\n\
+        4. Re-snapshot after page changes\n";
+
+    if claude_md_path.exists() {
+        // Check if section already exists
+        let content = fs::read_to_string(&claude_md_path)
+            .map_err(|e| HydraError::io("reading CLAUDE.md", e))?;
+        if content.contains("## Browser Automation") {
+            if verbose {
+                println!("Browser automation section already in CLAUDE.md");
+            }
+            return Ok(());
+        }
+
+        // Append to existing file
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(&claude_md_path)
+            .map_err(|e| HydraError::io("opening CLAUDE.md for append", e))?;
+
+        // Ensure we start on a new line
+        if !content.ends_with('\n') {
+            writeln!(file).map_err(|e| HydraError::io("writing to CLAUDE.md", e))?;
+        }
+
+        write!(file, "{}", section).map_err(|e| HydraError::io("writing to CLAUDE.md", e))?;
+    } else {
+        // Create new CLAUDE.md
+        fs::write(&claude_md_path, format!("# Project\n{}", section))
+            .map_err(|e| HydraError::io("creating CLAUDE.md", e))?;
+    }
+
+    println!("Added browser automation instructions to CLAUDE.md");
     Ok(())
 }
 

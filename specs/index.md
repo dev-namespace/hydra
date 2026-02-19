@@ -14,7 +14,7 @@ Automated Claude Code task runner, iteration loop, task automation, prompt resol
 
 ## [Skill Setup](./skill-setup.md)
 
-Claude Code skills, local-dev-guide, deploy-and-check, hydra init extension, skill creation, skill templates, interactive prompts, PTY spawning, project setup, development workflow, deployment workflow, build commands, dev server, docker-compose, SSH, production verification.
+Claude Code skills, local-dev-guide, deploy-and-check, hydra init extension, skill creation, skill templates, interactive prompts, PTY spawning, project setup, development workflow, deployment workflow, build commands, dev server, docker-compose, SSH, production verification, browser automation, agent-browser, CLAUDE.md.
 
 **Source**: `src/main.rs` (init_command), `src/skill.rs`, `src/pty.rs`, `templates/skill-prompts/`
 
