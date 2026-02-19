@@ -10,7 +10,7 @@ Extension to `hydra init` that optionally creates Claude Code skills for local d
 - Users are prompted "Set up local-dev-guide skill? [y/N]" after permissions
 - Users are prompted "Set up deploy-and-check skill? [y/N]" after local-dev-guide
 - Users are prompted "Set up precommit hooks? [y/N]" after deploy-and-check
-- Users are prompted "Add browser automation instructions to CLAUDE.md? [y/N]" after precommit
+- Users are prompted "Add CLAUDE.md instructions (browser automation, specs)? [y/N]" after precommit
 - Users are prompted "Create .hydra/ directory with prompt template? [y/N]" at the end
 - Users can decline any prompt by pressing Enter or typing "n"
 - Users can accept by typing "y" or "Y"
@@ -41,7 +41,7 @@ Extension to `hydra init` that optionally creates Claude Code skills for local d
 ### Prompt Behavior
 
 - Prompts default to "No" (pressing Enter skips)
-- Steps are executed sequentially: permissions → local-dev-guide → deploy-and-check → precommit → browser automation → .hydra/ directory
+- Steps are executed sequentially: permissions → local-dev-guide → deploy-and-check → precommit → CLAUDE.md instructions → .hydra/ directory
 - If user declines all, init completes normally with no additional output
 
 ### Permissions Setup
@@ -151,12 +151,14 @@ Example CLAUDE.md addition:
 Fast parallel hooks via prek: lint, typecheck, format-check. Commit checkpoints frequently—hooks catch issues faster than manual checks.
 ```
 
-### Browser Automation CLAUDE.md Section
+### CLAUDE.md Instructions
 
-- Does NOT spawn Claude — directly appends a section to `CLAUDE.md`
+- Does NOT spawn Claude — directly appends sections to `CLAUDE.md`
 - If `CLAUDE.md` doesn't exist, creates it with a `# Project` heading
-- If `## Browser Automation` section already exists, skips (idempotent)
-- The section documents `agent-browser` CLI usage: open, snapshot, click, fill
+- Each section is idempotent — skips if the heading already exists
+- Sections added:
+  - `## Browser Automation` — documents `agent-browser` CLI usage
+  - `## Specs` — explains `/spec study` for reviewing existing systems
 
 ## Related Specs
 

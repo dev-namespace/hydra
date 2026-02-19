@@ -319,55 +319,77 @@ fn setup_skills(verbose: bool) -> Result<()> {
         create_skill_with_claude(SkillType::Precommit, verbose)?;
     }
 
-    // Prompt for browser automation instructions in CLAUDE.md
-    if prompt_yes_no("Add browser automation instructions to CLAUDE.md?")? {
-        add_browser_instructions_to_claude_md(verbose)?;
+    // Prompt for CLAUDE.md instructions (browser automation, specs, etc.)
+    if prompt_yes_no("Add CLAUDE.md instructions (browser automation, specs)?")? {
+        add_claude_md_instructions(verbose)?;
     }
 
     Ok(())
 }
 
-/// Append browser automation instructions to CLAUDE.md
-fn add_browser_instructions_to_claude_md(verbose: bool) -> Result<()> {
+/// Sections to append to CLAUDE.md
+const CLAUDE_MD_SECTIONS: &[(&str, &str)] = &[
+    (
+        "## Browser Automation",
+        "\n## Browser Automation\n\n\
+         Use `agent-browser` for web automation. Run `agent-browser --help` for all commands.\n\n\
+         Core workflow:\n\
+         1. `agent-browser open <url>` - Navigate to page\n\
+         2. `agent-browser snapshot -i` - Get interactive elements with refs (@e1, @e2)\n\
+         3. `agent-browser click @e1` / `fill @e2 \"text\"` - Interact using refs\n\
+         4. Re-snapshot after page changes\n",
+    ),
+    (
+        "## Specs",
+        "\n## Specs\n\n\
+         You can use `/spec study` to review existing systems before implementing.\n",
+    ),
+];
+
+/// Append standard instructions to CLAUDE.md (browser automation, specs, etc.)
+fn add_claude_md_instructions(verbose: bool) -> Result<()> {
     let claude_md_path = PathBuf::from("CLAUDE.md");
-    let section = "\n## Browser Automation\n\n\
-        Use `agent-browser` for web automation. Run `agent-browser --help` for all commands.\n\n\
-        Core workflow:\n\
-        1. `agent-browser open <url>` - Navigate to page\n\
-        2. `agent-browser snapshot -i` - Get interactive elements with refs (@e1, @e2)\n\
-        3. `agent-browser click @e1` / `fill @e2 \"text\"` - Interact using refs\n\
-        4. Re-snapshot after page changes\n";
+
+    let existing_content = if claude_md_path.exists() {
+        fs::read_to_string(&claude_md_path).map_err(|e| HydraError::io("reading CLAUDE.md", e))?
+    } else {
+        String::new()
+    };
+
+    // Collect sections that don't already exist
+    let mut to_append = String::new();
+    for (heading, section) in CLAUDE_MD_SECTIONS {
+        if !existing_content.contains(heading) {
+            to_append.push_str(section);
+        } else if verbose {
+            println!("{} section already in CLAUDE.md", heading);
+        }
+    }
+
+    if to_append.is_empty() {
+        if verbose {
+            println!("All sections already present in CLAUDE.md");
+        }
+        return Ok(());
+    }
 
     if claude_md_path.exists() {
-        // Check if section already exists
-        let content = fs::read_to_string(&claude_md_path)
-            .map_err(|e| HydraError::io("reading CLAUDE.md", e))?;
-        if content.contains("## Browser Automation") {
-            if verbose {
-                println!("Browser automation section already in CLAUDE.md");
-            }
-            return Ok(());
-        }
-
-        // Append to existing file
         let mut file = fs::OpenOptions::new()
             .append(true)
             .open(&claude_md_path)
             .map_err(|e| HydraError::io("opening CLAUDE.md for append", e))?;
 
-        // Ensure we start on a new line
-        if !content.ends_with('\n') {
+        if !existing_content.ends_with('\n') {
             writeln!(file).map_err(|e| HydraError::io("writing to CLAUDE.md", e))?;
         }
 
-        write!(file, "{}", section).map_err(|e| HydraError::io("writing to CLAUDE.md", e))?;
+        write!(file, "{}", to_append).map_err(|e| HydraError::io("writing to CLAUDE.md", e))?;
     } else {
-        // Create new CLAUDE.md
-        fs::write(&claude_md_path, format!("# Project\n{}", section))
+        fs::write(&claude_md_path, format!("# Project\n{}", to_append))
             .map_err(|e| HydraError::io("creating CLAUDE.md", e))?;
     }
 
-    println!("Added browser automation instructions to CLAUDE.md");
+    println!("Added instructions to CLAUDE.md");
     Ok(())
 }
 
