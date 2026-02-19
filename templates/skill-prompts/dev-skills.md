@@ -10,7 +10,6 @@ Create `.claude/skills/local-dev-guide/SKILL.md`. Analyze the repo, test non-des
 ---
 name: local-dev-guide
 description: Quick reference for local development commands
-disable-model-invocation: true
 ---
 ```
 

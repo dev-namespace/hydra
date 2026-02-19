@@ -77,7 +77,9 @@ Extension to `hydra init` that optionally creates Claude Code skills for local d
 
 ### Skill Format
 
-Skills follow Claude Code skill format with frontmatter and `disable-model-invocation: true` so users invoke manually via `/local-dev-guide` or `/deploy-and-check`.
+Skills follow Claude Code skill format with frontmatter:
+- `local-dev-guide`: model-invocable (Claude can use it automatically during tasks)
+- `deploy-and-check`: `disable-model-invocation: true` (manual invocation only via `/deploy-and-check`)
 
 ### Precommit Setup
 
