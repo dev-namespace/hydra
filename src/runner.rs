@@ -101,7 +101,8 @@ struct SessionLogger {
 
 impl SessionLogger {
     /// Create a new session logger with timestamp-based filename
-    fn new() -> Result<Self> {
+    /// If a plan name is provided, it's included in the filename for identification
+    fn new(plan_name: Option<&str>) -> Result<Self> {
         let logs_dir = Config::logs_dir();
 
         // Create logs directory if it doesn't exist
@@ -111,9 +112,12 @@ impl SessionLogger {
             })?;
         }
 
-        // Generate timestamp-based filename: hydra-YYYYMMDD-HHMMSS.log
+        // Generate filename: <plan-name>-YYYYMMDD-HHMMSS.log or hydra-YYYYMMDD-HHMMSS.log
         let timestamp = Local::now().format("%Y%m%d-%H%M%S");
-        let filename = format!("hydra-{}.log", timestamp);
+        let filename = match plan_name {
+            Some(name) => format!("{}-{}.log", name, timestamp),
+            None => format!("hydra-{}.log", timestamp),
+        };
         let path = logs_dir.join(filename);
 
         // Open file for writing (create if doesn't exist)
@@ -177,13 +181,14 @@ pub struct Runner {
     prompt: ResolvedPrompt,
     should_stop: Arc<AtomicBool>,
     logger: Option<SessionLogger>,
+    plan_name: Option<String>,
 }
 
 impl Runner {
-    /// Create a new runner with the given configuration and prompt
-    pub fn new(config: Config, prompt: ResolvedPrompt) -> Self {
+    /// Create a new runner with the given configuration, prompt, and optional plan name
+    pub fn new(config: Config, prompt: ResolvedPrompt, plan_name: Option<String>) -> Self {
         // Try to create the session logger, but don't fail if it doesn't work
-        let logger = match SessionLogger::new() {
+        let logger = match SessionLogger::new(plan_name.as_deref()) {
             Ok(l) => Some(l),
             Err(e) => {
                 eprintln!("[hydra] Warning: Could not create session log: {}", e);
@@ -196,6 +201,7 @@ impl Runner {
             prompt,
             should_stop: Arc::new(AtomicBool::new(false)),
             logger,
+            plan_name,
         }
     }
 
@@ -293,6 +299,9 @@ impl Runner {
         if let Some(ref mut logger) = self.logger {
             let _ = logger.log(&format!("Session started - max iterations: {}", max));
             let _ = logger.log(&format!("Prompt file: {}", self.prompt.path.display()));
+            if let Some(ref plan) = self.plan_name {
+                let _ = logger.log(&format!("Plan: {}", plan));
+            }
         }
 
         for iteration in 1..=max {
@@ -412,7 +421,7 @@ mod tests {
     fn test_runner_creation() {
         let config = test_config();
         let prompt = test_prompt();
-        let runner = Runner::new(config, prompt);
+        let runner = Runner::new(config, prompt, None);
 
         assert!(!runner.should_stop.load(Ordering::SeqCst));
     }
@@ -421,7 +430,7 @@ mod tests {
     fn test_stop_flag() {
         let config = test_config();
         let prompt = test_prompt();
-        let runner = Runner::new(config, prompt);
+        let runner = Runner::new(config, prompt, None);
 
         let flag = runner.stop_flag();
         assert!(!flag.load(Ordering::SeqCst));

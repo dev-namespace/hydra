@@ -37,6 +37,8 @@ Automated Claude Code task runner. Executes tasks from implementation plans in a
 
 ### Logging
 - Users can find session logs in `.hydra/logs/hydra-YYYYMMDD-HHMMSS.log`
+- When a plan file is provided, the plan name is used as the log filename prefix: `.hydra/logs/<plan-name>-YYYYMMDD-HHMMSS.log`
+- The plan name is also logged in the session header inside the log file
 
 ## Constraints
 

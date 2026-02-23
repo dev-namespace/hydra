@@ -168,8 +168,15 @@ fn run(cli: Cli) -> Result<()> {
             println!("─────────────────────────────────────────");
             println!();
 
+            // Extract plan name from plan path (file stem without extension)
+            let plan_name = cli.plan.as_ref().and_then(|p| {
+                p.file_stem()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.to_string())
+            });
+
             // Create the runner
-            let mut runner = Runner::new(config.clone(), resolved);
+            let mut runner = Runner::new(config.clone(), resolved, plan_name);
 
             // Install signal handlers with the runner's stop flag
             let stop_flag = runner.stop_flag();
