@@ -12,7 +12,7 @@ use clap::Parser;
 use cli::Cli;
 use config::Config;
 use error::{EXIT_SUCCESS, HydraError, Result};
-use prompt::{inject_plan_path, resolve_prompt};
+use prompt::{inject_plan_path, inject_scratchpad_path, resolve_prompt};
 use runner::{RunResult, Runner};
 use skill::{SkillType, create_skill_with_claude, prompt_yes_no};
 use std::fs::{self, OpenOptions};
@@ -68,7 +68,7 @@ fn run(cli: Cli) -> Result<()> {
 
     // Merge CLI options over config (CLI takes precedence)
     config.merge_cli(
-        if cli.max != 10 { Some(cli.max) } else { None },
+        if cli.max != 20 { Some(cli.max) } else { None },
         cli.verbose,
         if cli.timeout != 1200 {
             Some(cli.timeout)
@@ -121,6 +121,32 @@ fn run(cli: Cli) -> Result<()> {
 
             // Inject plan path reference into prompt
             resolved.content = inject_plan_path(&resolved.content, plan_path);
+
+            // Create scratchpad file for cross-iteration notes
+            let scratchpad_dir = Config::scratchpad_dir();
+            if let Err(e) = fs::create_dir_all(&scratchpad_dir) {
+                eprintln!(
+                    "[hydra] Warning: Could not create scratchpad directory: {}",
+                    e
+                );
+            } else {
+                let plan_stem = plan_path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("scratchpad");
+                let scratchpad_path = scratchpad_dir.join(format!("{}.md", plan_stem));
+                if !scratchpad_path.exists() {
+                    let header = format!("# Scratchpad — {}\n\nCross-iteration notes for this plan.\n", plan_stem);
+                    if let Err(e) = fs::write(&scratchpad_path, header) {
+                        eprintln!(
+                            "[hydra] Warning: Could not create scratchpad file: {}",
+                            e
+                        );
+                    }
+                }
+                // Inject scratchpad path into prompt
+                resolved.content = inject_scratchpad_path(&resolved.content, &scratchpad_path);
+            }
         }
 
         if cli.dry_run {

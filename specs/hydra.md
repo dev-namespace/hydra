@@ -18,6 +18,12 @@ Automated Claude Code task runner. Executes tasks from implementation plans in a
 - When provided, the plan content is appended to the prompt with a `## Implementation Plan` header
 - If the plan file path is provided but the file doesn't exist, hydra exits with a helpful error
 
+### Scratchpad
+- When a plan is provided, hydra creates `.hydra/scratchpad/<plan-name>.md` if it doesn't exist
+- The scratchpad path is injected into the prompt as a `## Scratchpad` section
+- Iterations can read/write the scratchpad to share notes across runs
+- Existing scratchpad content is preserved across runs
+
 ### Project Setup
 - Users can run `hydra init` to interactively set up skills and optionally create a `.hydra/` directory
 - Users can run `hydra --install` to install the binary to `~/.local/bin`
@@ -51,7 +57,7 @@ hydra --install             # Install to ~/.local/bin
 
 ### Options
 - `--prompt <path>`, `-p`: Override system prompt file
-- `--max <N>`, `-m`: Maximum iterations (default: 10)
+- `--max <N>`, `-m`: Maximum iterations (default: 20)
 - `--timeout <N>`, `-t`: Iteration timeout in seconds (default: 1200 = 20 minutes)
 - `--dry-run`: Preview configuration without executing
 - `--verbose`, `-v`: Enable debug output
@@ -86,7 +92,7 @@ The implementation plan is located at: [plan file path]
 - `2`: Error (no prompt file found, or plan file not found)
 
 ### Configuration Defaults
-- Max iterations: 10
+- Max iterations: 20
 - Timeout: 1200 seconds (20 minutes)
 - Verbose: false
 - Stop file: `.hydra-stop`
@@ -99,6 +105,7 @@ The implementation plan is located at: [plan file path]
 
 ./.hydra/                    # Per-project (auto-created on first run)
 ├── logs/                    # Session logs
+├── scratchpad/              # Cross-iteration notes (auto-created with plan)
 └── prompt.md                # Project-specific prompt (optional)
 ```
 

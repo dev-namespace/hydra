@@ -22,7 +22,7 @@ pub struct Cli {
     pub command: Option<Command>,
 
     /// Maximum number of iterations to run
-    #[arg(short, long, default_value = "10")]
+    #[arg(short, long, default_value = "20")]
     pub max: u32,
 
     /// Preview configuration without executing

@@ -115,6 +115,18 @@ pub fn inject_plan_path(prompt_content: &str, plan_path: &std::path::Path) -> St
     )
 }
 
+/// Inject scratchpad path reference into prompt content
+///
+/// Appends a `## Scratchpad` section with the file path to the prompt.
+/// Returns the combined content.
+pub fn inject_scratchpad_path(prompt_content: &str, scratchpad_path: &std::path::Path) -> String {
+    format!(
+        "{}\n\n## Scratchpad\n\nShared notes file across iterations: {}",
+        prompt_content.trim_end(),
+        scratchpad_path.display()
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -278,6 +290,36 @@ mod tests {
         assert_eq!(
             result,
             "Prompt content\n\n## Implementation Plan\n\nThe implementation plan is located at: plan.md"
+        );
+    }
+
+    #[test]
+    fn test_inject_scratchpad_path() {
+        use std::path::Path;
+        let prompt = "# Prompt\n\n## Implementation Plan\n\nThe implementation plan is located at: plan.md";
+        let scratchpad = Path::new(".hydra/scratchpad/my-plan.md");
+
+        let result = inject_scratchpad_path(prompt, scratchpad);
+
+        assert!(result.contains("## Scratchpad"));
+        assert!(result.contains(".hydra/scratchpad/my-plan.md"));
+        // Scratchpad section comes after plan section
+        let plan_pos = result.find("## Implementation Plan").unwrap();
+        let scratch_pos = result.find("## Scratchpad").unwrap();
+        assert!(scratch_pos > plan_pos);
+    }
+
+    #[test]
+    fn test_inject_scratchpad_path_format() {
+        use std::path::Path;
+        let prompt = "Prompt content";
+        let scratchpad = Path::new(".hydra/scratchpad/plan.md");
+
+        let result = inject_scratchpad_path(prompt, scratchpad);
+
+        assert_eq!(
+            result,
+            "Prompt content\n\n## Scratchpad\n\nShared notes file across iterations: .hydra/scratchpad/plan.md"
         );
     }
 

@@ -22,7 +22,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            max_iterations: 10,
+            max_iterations: 20,
             verbose: false,
             stop_file: ".hydra-stop".to_string(),
             timeout_seconds: 1200, // 20 minutes
@@ -96,6 +96,11 @@ impl Config {
         Self::local_hydra_dir().join("logs")
     }
 
+    /// Get the path to the scratchpad directory (./.hydra/scratchpad)
+    pub fn scratchpad_dir() -> PathBuf {
+        Self::local_hydra_dir().join("scratchpad")
+    }
+
     /// Merge CLI options over config values
     /// CLI options take precedence when provided
     pub fn merge_cli(&mut self, max: Option<u32>, verbose: bool, timeout: Option<u64>) {
@@ -121,7 +126,7 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = Config::default();
-        assert_eq!(config.max_iterations, 10);
+        assert_eq!(config.max_iterations, 20);
         assert!(!config.verbose);
         assert_eq!(config.stop_file, ".hydra-stop");
         assert_eq!(config.timeout_seconds, 1200);
@@ -167,7 +172,7 @@ timeout_seconds = 600
     #[test]
     fn test_merge_cli() {
         let mut config = Config::default();
-        assert_eq!(config.max_iterations, 10);
+        assert_eq!(config.max_iterations, 20);
         assert!(!config.verbose);
         assert_eq!(config.timeout_seconds, 1200);
 
@@ -207,5 +212,6 @@ timeout_seconds = 600
         assert_eq!(Config::local_hydra_dir(), PathBuf::from(".hydra"));
         assert!(Config::local_prompt_path().ends_with("prompt.md"));
         assert!(Config::logs_dir().ends_with("logs"));
+        assert!(Config::scratchpad_dir().ends_with("scratchpad"));
     }
 }
