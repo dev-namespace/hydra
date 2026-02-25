@@ -34,6 +34,11 @@ Automated Claude Code task runner. Executes tasks from implementation plans in a
 - Users can create `./.hydra/prompt.md` for project-specific prompts
 - Users can override any prompt with the `--prompt` flag
 
+### Plan Review
+- After all tasks complete, if a plan file was provided, hydra automatically launches a plan review in a new interactive Claude session
+- The review session runs `/plan-review <plan-path>` so the user can see a quality report and interact with Claude to discuss findings
+- If the review fails to launch, hydra prints a warning but still exits successfully
+
 ### Stopping Execution
 - Users can press Ctrl+C once for graceful termination (kills Claude, finishes iteration)
 - Users can press Ctrl+C twice for immediate force quit

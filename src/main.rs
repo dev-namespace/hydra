@@ -14,7 +14,7 @@ use config::Config;
 use error::{EXIT_SUCCESS, HydraError, Result};
 use prompt::{inject_plan_path, inject_scratchpad_path, resolve_prompt};
 use runner::{RunResult, Runner};
-use skill::{SkillType, create_skill_with_claude, prompt_yes_no};
+use skill::{SkillType, create_skill_with_claude, prompt_yes_no, spawn_claude_interactive};
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
@@ -212,6 +212,28 @@ fn run(cli: Cli) -> Result<()> {
 
             // Run the main loop
             let result = runner.run()?;
+
+            // Launch plan review if all tasks completed and a plan was provided
+            if matches!(result, RunResult::AllTasksComplete { .. }) {
+                if let Some(ref plan_path) = cli.plan {
+                    println!();
+                    println!("[hydra] Launching plan review...");
+                    println!();
+
+                    // Build the review prompt — scratchpad is read by the skill itself
+                    let review_prompt = format!("/plan-review {}", plan_path.display());
+                    let temp_dir = std::env::temp_dir();
+                    let review_file = temp_dir.join("hydra-plan-review.md");
+                    if let Err(e) = fs::write(&review_file, &review_prompt) {
+                        eprintln!("[hydra] Warning: Could not create review prompt file: {}", e);
+                    } else {
+                        if let Err(e) = spawn_claude_interactive(&review_file, config.verbose) {
+                            eprintln!("[hydra] Warning: Plan review failed: {}", e);
+                        }
+                        let _ = fs::remove_file(&review_file);
+                    }
+                }
+            }
 
             // Convert run result to appropriate exit
             match result {

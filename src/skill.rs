@@ -213,7 +213,7 @@ enum SkillPtyMessage {
 ///
 /// This spawns Claude via PTY, forwards keyboard input, and displays output
 /// until Claude exits.
-fn spawn_claude_interactive(prompt_path: &PathBuf, verbose: bool) -> Result<()> {
+pub fn spawn_claude_interactive(prompt_path: &PathBuf, verbose: bool) -> Result<()> {
     // Get terminal size
     let (cols, rows) = terminal::size().unwrap_or((80, 24));
 
