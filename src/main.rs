@@ -359,9 +359,14 @@ fn setup_skills(verbose: bool) -> Result<()> {
         create_skill_with_claude(SkillType::Permissions, verbose)?;
     }
 
-    // Prompt for dev skills (local-dev-guide + deploy-and-check created in parallel)
-    if prompt_yes_no(SkillType::DevSkills.prompt_text())? {
-        create_skill_with_claude(SkillType::DevSkills, verbose)?;
+    // Prompt for local-dev-guide skill
+    if prompt_yes_no(SkillType::LocalDevGuide.prompt_text())? {
+        create_skill_with_claude(SkillType::LocalDevGuide, verbose)?;
+    }
+
+    // Prompt for deploy-and-check skill
+    if prompt_yes_no(SkillType::DeployAndCheck.prompt_text())? {
+        create_skill_with_claude(SkillType::DeployAndCheck, verbose)?;
     }
 
     // Prompt for precommit hooks setup
