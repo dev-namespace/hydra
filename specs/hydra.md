@@ -12,6 +12,7 @@ Automated Claude Code task runner. Executes tasks from implementation plans in a
 - Users can preview configuration with `--dry-run` without executing
 - Users can enable debug output with `--verbose`
 - Users can override the prompt file with `--prompt <path>`
+- Users can reset a plan's checkboxes and clear its scratchpad with `--reset-plan`
 
 ### Implementation Plan
 - Users can provide an optional first positional argument as a path to an implementation plan
@@ -64,6 +65,7 @@ hydra --install             # Install to ~/.local/bin
 - `--prompt <path>`, `-p`: Override system prompt file
 - `--max <N>`, `-m`: Maximum iterations (default: 20)
 - `--timeout <N>`, `-t`: Iteration timeout in seconds (default: 1200 = 20 minutes)
+- `--reset-plan`: Uncheck all plan checkboxes (`- [x]` → `- [ ]`) and reset scratchpad to initial header. Requires a plan file argument.
 - `--dry-run`: Preview configuration without executing
 - `--verbose`, `-v`: Enable debug output
 

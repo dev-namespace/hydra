@@ -37,6 +37,10 @@ pub struct Cli {
     #[arg(short, long)]
     pub prompt: Option<PathBuf>,
 
+    /// Reset plan checkboxes and clear scratchpad before running
+    #[arg(long)]
+    pub reset_plan: bool,
+
     /// Install hydra to ~/.local/bin
     #[arg(long)]
     pub install: bool,

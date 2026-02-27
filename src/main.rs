@@ -108,6 +108,47 @@ fn run(cli: Cli) -> Result<()> {
             eprintln!("Prompt path: {}", resolved.path.display());
         }
 
+        // Handle --reset-plan flag
+        if cli.reset_plan {
+            let plan_path = cli.plan.as_ref().ok_or_else(|| {
+                HydraError::io(
+                    "--reset-plan requires a plan file argument",
+                    std::io::Error::new(std::io::ErrorKind::InvalidInput, "--reset-plan requires a plan file"),
+                )
+            })?;
+
+            // Uncheck all checkboxes in the plan file
+            let plan_content = fs::read_to_string(plan_path)
+                .map_err(|e| HydraError::io(format!("reading plan {}", plan_path.display()), e))?;
+            let reset_content = plan_content.replace("- [x]", "- [ ]").replace("- [X]", "- [ ]");
+            if reset_content != plan_content {
+                fs::write(plan_path, &reset_content).map_err(|e| {
+                    HydraError::io(format!("writing plan {}", plan_path.display()), e)
+                })?;
+            }
+
+            // Clear scratchpad if it exists
+            let plan_stem = plan_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("scratchpad");
+            let scratchpad_path = Config::scratchpad_dir().join(format!("{}.md", plan_stem));
+            if scratchpad_path.exists() {
+                let header = format!(
+                    "# Scratchpad — {}\n\nCross-iteration notes for this plan.\n",
+                    plan_stem
+                );
+                fs::write(&scratchpad_path, header).map_err(|e| {
+                    HydraError::io(
+                        format!("resetting scratchpad {}", scratchpad_path.display()),
+                        e,
+                    )
+                })?;
+            }
+
+            println!("[hydra] Plan reset: unchecked all tasks, cleared scratchpad");
+        }
+
         // If a plan file is provided, inject a reference to it in the prompt
         if let Some(ref plan_path) = cli.plan {
             // Verify plan file exists
