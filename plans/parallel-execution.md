@@ -11,7 +11,7 @@ Add `--no-review` flag to hydra CLI and create a global `/hydra` Claude Code ski
   - Guard the review block in `src/main.rs` (around line 258) with `!cli.no_review`
   - + ([spec: No-Review Mode](../specs/parallel-execution.md#no-review-mode))
   - + ([spec: Hydra CLI Change](../specs/parallel-execution.md#hydra-cli-change))
-- [ ] Create global `/hydra` skill at `~/.claude/skills/hydra/SKILL.md`
+- [x] Create global `/hydra` skill at `~/.claude/skills/hydra/SKILL.md`
   - Skill parses `$ARGUMENTS` to extract folder path and `--parallel N` (default 3)
   - Instructs orchestrator to glob `<folder>/*.md` for plan files
   - Orchestrator spawns up to N `general-purpose` background subagents, each running `hydra <plan> --no-review` via Bash
@@ -21,7 +21,7 @@ Add `--no-review` flag to hydra CLI and create a global `/hydra` Claude Code ski
   - `disable-model-invocation: true` (manual invoke only)
   - + ([spec: Execution Model](../specs/parallel-execution.md#execution-model))
   - + ([spec: Orchestrator Behavior](../specs/parallel-execution.md#orchestrator-behavior))
-- [ ] Create `plans/test-parallel/` folder with 3-4 trivial debug plans
+- [x] Create `plans/test-parallel/` folder with 3-4 trivial debug plans
   - Each plan should have 1-2 fast tasks (e.g., create a temp file, echo a message, read a file)
   - Plans must complete in under 1 minute each
   - Include one plan that intentionally fails to test failure reporting

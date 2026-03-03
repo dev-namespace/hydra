@@ -28,6 +28,14 @@ Parallel plan execution, folder of plans, concurrency sliding window, --parallel
 
 ---
 
+## [Headless Mode](./headless-mode.md)
+
+Non-interactive execution, claude -p, pipe mode, --headless flag, stdin prompt, stream-json parsing, text_delta, automation, CI/CD, batch processing, no PTY, no terminal, no TUI, parallel integration, --dangerously-skip-permissions, clean context per iteration.
+
+**Source**: `src/headless.rs` (to be created), `src/cli.rs` (--headless flag), `src/main.rs` (routing)
+
+---
+
 ## [TUI Mode](./tui-mode.md)
 
 Multi-tab interface, parallel Claude instances, ratatui, tab management, Ctrl+O new tab, F8 close tab, F1-F7 switch tabs, F9 exit, tab bar, multiple PTY, concurrent sessions, split view, terminal multiplexer, tmux-like, screen-like.

@@ -40,7 +40,7 @@ Run all plans in a folder concurrently via a Claude Code global skill that orche
 - One `general-purpose` background subagent per active plan
 - Sliding window: max N subagents running at once
 - When a subagent completes, the next plan from the queue is launched
-- Each subagent runs `hydra <plan> --no-review` via Bash
+- Each subagent runs `hydra <plan> --headless --no-review` via Bash
 - Subagents absorb verbose hydra output in their own context window
 - Subagents return only: plan name, exit code, and errors/concerns (if any)
 
@@ -60,6 +60,7 @@ Run all plans in a folder concurrently via a Claude Code global skill that orche
 ## Related specs
 
 - [Hydra](./hydra.md) - core task runner, PTY management, stop signals
+- [Headless Mode](./headless-mode.md) - non-interactive execution used by parallel skill
 - [Skill Setup](./skill-setup.md) - skill creation infrastructure
 
 ## Source
