@@ -113,14 +113,19 @@ fn run(cli: Cli) -> Result<()> {
             let plan_path = cli.plan.as_ref().ok_or_else(|| {
                 HydraError::io(
                     "--reset-plan requires a plan file argument",
-                    std::io::Error::new(std::io::ErrorKind::InvalidInput, "--reset-plan requires a plan file"),
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "--reset-plan requires a plan file",
+                    ),
                 )
             })?;
 
             // Uncheck all checkboxes in the plan file
             let plan_content = fs::read_to_string(plan_path)
                 .map_err(|e| HydraError::io(format!("reading plan {}", plan_path.display()), e))?;
-            let reset_content = plan_content.replace("- [x]", "- [ ]").replace("- [X]", "- [ ]");
+            let reset_content = plan_content
+                .replace("- [x]", "- [ ]")
+                .replace("- [X]", "- [ ]");
             if reset_content != plan_content {
                 fs::write(plan_path, &reset_content).map_err(|e| {
                     HydraError::io(format!("writing plan {}", plan_path.display()), e)
@@ -177,12 +182,12 @@ fn run(cli: Cli) -> Result<()> {
                     .unwrap_or("scratchpad");
                 let scratchpad_path = scratchpad_dir.join(format!("{}.md", plan_stem));
                 if !scratchpad_path.exists() {
-                    let header = format!("# Scratchpad — {}\n\nCross-iteration notes for this plan.\n", plan_stem);
+                    let header = format!(
+                        "# Scratchpad — {}\n\nCross-iteration notes for this plan.\n",
+                        plan_stem
+                    );
                     if let Err(e) = fs::write(&scratchpad_path, header) {
-                        eprintln!(
-                            "[hydra] Warning: Could not create scratchpad file: {}",
-                            e
-                        );
+                        eprintln!("[hydra] Warning: Could not create scratchpad file: {}", e);
                     }
                 }
                 // Inject scratchpad path into prompt
@@ -254,25 +259,29 @@ fn run(cli: Cli) -> Result<()> {
             // Run the main loop
             let result = runner.run()?;
 
-            // Launch plan review if all tasks completed and a plan was provided
-            if matches!(result, RunResult::AllTasksComplete { .. }) {
-                if let Some(ref plan_path) = cli.plan {
-                    println!();
-                    println!("[hydra] Launching plan review...");
-                    println!();
+            // Launch plan review if all tasks completed and a plan was provided (unless --no-review)
+            if matches!(result, RunResult::AllTasksComplete { .. })
+                && !cli.no_review
+                && let Some(ref plan_path) = cli.plan
+            {
+                println!();
+                println!("[hydra] Launching plan review...");
+                println!();
 
-                    // Build the review prompt — scratchpad is read by the skill itself
-                    let review_prompt = format!("/plan-review {}", plan_path.display());
-                    let temp_dir = std::env::temp_dir();
-                    let review_file = temp_dir.join("hydra-plan-review.md");
-                    if let Err(e) = fs::write(&review_file, &review_prompt) {
-                        eprintln!("[hydra] Warning: Could not create review prompt file: {}", e);
-                    } else {
-                        if let Err(e) = spawn_claude_interactive(&review_file, config.verbose) {
-                            eprintln!("[hydra] Warning: Plan review failed: {}", e);
-                        }
-                        let _ = fs::remove_file(&review_file);
+                // Build the review prompt — scratchpad is read by the skill itself
+                let review_prompt = format!("/plan-review {}", plan_path.display());
+                let temp_dir = std::env::temp_dir();
+                let review_file = temp_dir.join("hydra-plan-review.md");
+                if let Err(e) = fs::write(&review_file, &review_prompt) {
+                    eprintln!(
+                        "[hydra] Warning: Could not create review prompt file: {}",
+                        e
+                    );
+                } else {
+                    if let Err(e) = spawn_claude_interactive(&review_file, config.verbose) {
+                        eprintln!("[hydra] Warning: Plan review failed: {}", e);
                     }
+                    let _ = fs::remove_file(&review_file);
                 }
             }
 

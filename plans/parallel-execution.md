@@ -6,7 +6,7 @@ Add `--no-review` flag to hydra CLI and create a global `/hydra` Claude Code ski
 
 ## Tasks
 
-- [ ] Add `--no-review` CLI flag and guard the plan review step
+- [x] Add `--no-review` CLI flag and guard the plan review step
   - Add `no_review: bool` field to `Cli` struct in `src/cli.rs`
   - Guard the review block in `src/main.rs` (around line 258) with `!cli.no_review`
   - + ([spec: No-Review Mode](../specs/parallel-execution.md#no-review-mode))

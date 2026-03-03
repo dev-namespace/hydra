@@ -296,7 +296,8 @@ mod tests {
     #[test]
     fn test_inject_scratchpad_path() {
         use std::path::Path;
-        let prompt = "# Prompt\n\n## Implementation Plan\n\nThe implementation plan is located at: plan.md";
+        let prompt =
+            "# Prompt\n\n## Implementation Plan\n\nThe implementation plan is located at: plan.md";
         let scratchpad = Path::new(".hydra/scratchpad/my-plan.md");
 
         let result = inject_scratchpad_path(prompt, scratchpad);

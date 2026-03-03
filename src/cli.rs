@@ -45,6 +45,10 @@ pub struct Cli {
     #[arg(long)]
     pub install: bool,
 
+    /// Skip the interactive plan review after all tasks complete
+    #[arg(long)]
+    pub no_review: bool,
+
     /// Timeout per iteration in seconds (default: 1200 = 20 minutes)
     /// If Claude doesn't output a stop signal within this time, the iteration is terminated
     #[arg(short, long, default_value = "1200")]
