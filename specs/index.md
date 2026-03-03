@@ -20,6 +20,14 @@ Claude Code skills, local-dev-guide, deploy-and-check, hydra init extension, ski
 
 ---
 
+## [Parallel Execution](./parallel-execution.md)
+
+Parallel plan execution, folder of plans, concurrency sliding window, --parallel flag, background subagents, orchestrator skill, /hydra skill, global skill, batch plans, --no-review, plan queue, live progress, summary table, concurrent hydra sessions.
+
+**Source**: `~/.claude/skills/hydra/SKILL.md`, `src/cli.rs` (--no-review flag), `src/main.rs` (review guard)
+
+---
+
 ## [TUI Mode](./tui-mode.md)
 
 Multi-tab interface, parallel Claude instances, ratatui, tab management, Ctrl+O new tab, F8 close tab, F1-F7 switch tabs, F9 exit, tab bar, multiple PTY, concurrent sessions, split view, terminal multiplexer, tmux-like, screen-like.
