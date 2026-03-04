@@ -26,7 +26,7 @@ Rewrite the `/hydra` global skill (`~/.claude/skills/hydra/SKILL.md`) to support
 - [x] Add scratchpad merge, plan review, and final summary: between waves, read each task's scratchpad from `.hydra/scratchpad/<plan-name>/task-N.md` and merge into the main scratchpad with wave-stamped sections (`## Wave N Results` → `### Task M: <description>`). After all waves complete, trigger a single plan review on the original plan (unless `--no-review`). Print a final summary table across all waves showing completed, failed, and blocked tasks.
   + ([spec: Scratchpad](../specs/parallel-execution.md#scratchpad))
   + ([spec: Plan Review](../specs/parallel-execution.md#plan-review))
-- [ ] Add worktree isolation mode: when `--worktree` is passed, each task in a wave runs in its own git worktree (created in `.claude/worktrees/`). After a wave completes, merge worktree changes back sequentially in task-index order. Mark tasks as FAIL if merge conflicts occur, noting which files conflicted. Without `--worktree`, tasks run in the same working directory (optimistic mode).
+- [x] Add worktree isolation mode: when `--worktree` is passed, each task in a wave runs in its own git worktree (created in `.claude/worktrees/`). After a wave completes, merge worktree changes back sequentially in task-index order. Mark tasks as FAIL if merge conflicts occur, noting which files conflicted. Without `--worktree`, tasks run in the same working directory (optimistic mode).
   + ([spec: Worktree Isolation Mode](../specs/parallel-execution.md#worktree-isolation-mode---worktree))
 
 ## Verification
