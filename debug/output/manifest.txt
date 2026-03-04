@@ -1,6 +1,8 @@
 alpha.txt
 beta.txt
+combined.txt
 farewell.txt
 gamma.txt
 greeting.txt
+manifest.txt
 status.txt
