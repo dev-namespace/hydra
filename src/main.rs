@@ -19,7 +19,7 @@ use runner::{RunResult, Runner};
 use skill::{SkillType, create_skill_with_claude, prompt_yes_no, spawn_claude_interactive};
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Debug log to file (since terminal may be frozen)
 fn debug_log(msg: &str) {
@@ -594,7 +594,7 @@ fn update_gitignore(verbose: bool) -> Result<()> {
 ///
 /// Pipes the review prompt to `claude -p` and saves the output to
 /// `.hydra/reviews/<plan-name>.md` for the user to read later.
-fn run_headless_review(prompt_path: &PathBuf, plan_path: &PathBuf) -> Result<()> {
+fn run_headless_review(prompt_path: &Path, plan_path: &Path) -> Result<()> {
     let prompt_content = fs::read_to_string(prompt_path)
         .map_err(|e| HydraError::io("reading review prompt file", e))?;
 

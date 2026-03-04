@@ -8,7 +8,7 @@ Rewrite the `/hydra` global skill (`~/.claude/skills/hydra/SKILL.md`) to support
 
 ## Tasks
 
-- [ ] Restructure `SKILL.md` argument parsing and mode detection: parse `$ARGUMENTS` to detect whether `$0` is a directory (parallel-plans) or file (parallel-tasks), extract `--parallel-plans N` and `--parallel-tasks N` flags, `--worktree`, and `--no-review`. Print usage if invalid. Keep the existing parallel-plans logic intact but rename `--parallel` to `--parallel-plans`.
+- [x] Restructure `SKILL.md` argument parsing and mode detection: parse `$ARGUMENTS` to detect whether `$0` is a directory (parallel-plans) or file (parallel-tasks), extract `--parallel-plans N` and `--parallel-tasks N` flags, `--worktree`, and `--no-review`. Print usage if invalid. Keep the existing parallel-plans logic intact but rename `--parallel` to `--parallel-plans`.
   + ([spec: Mode Detection](../specs/parallel-execution.md#mode-detection))
   + ([spec: Argument Parsing — parallel-plans](../specs/parallel-execution.md#argument-parsing))
   + ([spec: Argument Parsing — parallel-tasks](../specs/parallel-execution.md#argument-parsing-1))
