@@ -1,0 +1,6 @@
+alpha.txt
+beta.txt
+farewell.txt
+gamma.txt
+greeting.txt
+status.txt
