@@ -1,6 +1,7 @@
 mod cli;
 mod config;
 mod error;
+mod headless;
 mod prompt;
 mod pty;
 mod runner;
@@ -12,6 +13,7 @@ use clap::Parser;
 use cli::Cli;
 use config::Config;
 use error::{EXIT_SUCCESS, HydraError, Result};
+use headless::HeadlessRunner;
 use prompt::{inject_plan_path, inject_scratchpad_path, resolve_prompt};
 use runner::{RunResult, Runner};
 use skill::{SkillType, create_skill_with_claude, prompt_yes_no, spawn_claude_interactive};
@@ -206,6 +208,7 @@ fn run(cli: Cli) -> Result<()> {
             );
             println!("  verbose: {}", config.verbose);
             println!("  stop_file: {}", config.stop_file);
+            println!("  headless: {}", cli.headless);
             println!("  prompt_source: {}", resolved.source);
             println!("  prompt_path: {}", resolved.path.display());
             if let Some(ref plan_path) = cli.plan {
@@ -222,24 +225,6 @@ fn run(cli: Cli) -> Result<()> {
             println!("---");
             Ok(())
         } else {
-            // Print banner and version
-            println!("{}", BANNER);
-            println!(
-                "                                  hydra v{}",
-                env!("CARGO_PKG_VERSION")
-            );
-            println!();
-
-            // Print the prompt content so user knows what they're sending
-            println!("─── prompt ({}) ───", resolved.source);
-            println!();
-            for line in resolved.content.lines() {
-                println!("  {}", line);
-            }
-            println!();
-            println!("─────────────────────────────────────────");
-            println!();
-
             // Extract plan name from plan path (file stem without extension)
             let plan_name = cli.plan.as_ref().and_then(|p| {
                 p.file_stem()
@@ -247,17 +232,45 @@ fn run(cli: Cli) -> Result<()> {
                     .map(|s| s.to_string())
             });
 
-            // Create the runner
-            let mut runner = Runner::new(config.clone(), resolved, plan_name);
+            let result = if cli.headless {
+                // Headless mode: use claude -p pipe mode
+                let mut runner = HeadlessRunner::new(config.clone(), resolved, plan_name);
 
-            // Install signal handlers with the runner's stop flag
-            let stop_flag = runner.stop_flag();
-            if let Err(e) = signal::install_handlers(stop_flag) {
-                eprintln!("[hydra] Warning: Failed to install signal handlers: {}", e);
-            }
+                let stop_flag = runner.stop_flag();
+                if let Err(e) = signal::install_handlers(stop_flag) {
+                    eprintln!("[hydra] Warning: Failed to install signal handlers: {}", e);
+                }
 
-            // Run the main loop
-            let result = runner.run()?;
+                runner.run()?
+            } else {
+                // PTY mode: interactive terminal
+                // Print banner and version
+                println!("{}", BANNER);
+                println!(
+                    "                                  hydra v{}",
+                    env!("CARGO_PKG_VERSION")
+                );
+                println!();
+
+                // Print the prompt content so user knows what they're sending
+                println!("─── prompt ({}) ───", resolved.source);
+                println!();
+                for line in resolved.content.lines() {
+                    println!("  {}", line);
+                }
+                println!();
+                println!("─────────────────────────────────────────");
+                println!();
+
+                let mut runner = Runner::new(config.clone(), resolved, plan_name);
+
+                let stop_flag = runner.stop_flag();
+                if let Err(e) = signal::install_handlers(stop_flag) {
+                    eprintln!("[hydra] Warning: Failed to install signal handlers: {}", e);
+                }
+
+                runner.run()?
+            };
 
             // Launch plan review if all tasks completed and a plan was provided (unless --no-review)
             if matches!(result, RunResult::AllTasksComplete { .. })
@@ -277,6 +290,12 @@ fn run(cli: Cli) -> Result<()> {
                         "[hydra] Warning: Could not create review prompt file: {}",
                         e
                     );
+                } else if cli.headless {
+                    // Headless mode: run review via claude -p, save to .hydra/reviews/
+                    if let Err(e) = run_headless_review(&review_file, plan_path) {
+                        eprintln!("[hydra] Warning: Plan review failed: {}", e);
+                    }
+                    let _ = fs::remove_file(&review_file);
                 } else {
                     if let Err(e) = spawn_claude_interactive(&review_file, config.verbose) {
                         eprintln!("[hydra] Warning: Plan review failed: {}", e);
@@ -566,6 +585,66 @@ fn update_gitignore(verbose: bool) -> Result<()> {
         fs::write(&gitignore_path, format!("{}\n", hydra_entry))
             .map_err(|e| HydraError::io("creating .gitignore", e))?;
         println!("Created .gitignore with {}", hydra_entry);
+    }
+
+    Ok(())
+}
+
+/// Run plan review in headless mode via `claude -p`.
+///
+/// Pipes the review prompt to `claude -p` and saves the output to
+/// `.hydra/reviews/<plan-name>.md` for the user to read later.
+fn run_headless_review(prompt_path: &PathBuf, plan_path: &PathBuf) -> Result<()> {
+    let prompt_content = fs::read_to_string(prompt_path)
+        .map_err(|e| HydraError::io("reading review prompt file", e))?;
+
+    let mut child = std::process::Command::new("claude")
+        .args(["-p", "--dangerously-skip-permissions"])
+        .env_remove("CLAUDECODE")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| HydraError::io("spawning claude -p for review", e))?;
+
+    // Write prompt to stdin
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(prompt_content.as_bytes());
+    }
+
+    // Read stdout
+    let mut output = String::new();
+    if let Some(mut stdout) = child.stdout.take() {
+        let _ = std::io::Read::read_to_string(&mut stdout, &mut output);
+    }
+
+    let status = child
+        .wait()
+        .map_err(|e| HydraError::io("waiting for review process", e))?;
+    if !status.success() {
+        eprintln!(
+            "[hydra] Warning: Review process exited with code {}",
+            status.code().unwrap_or(-1)
+        );
+    }
+
+    // Save review output to .hydra/reviews/<plan-name>.md
+    if !output.is_empty() {
+        let reviews_dir = Config::reviews_dir();
+        if let Err(e) = fs::create_dir_all(&reviews_dir) {
+            eprintln!("[hydra] Warning: Could not create reviews directory: {}", e);
+            return Ok(());
+        }
+        let plan_stem = plan_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("review");
+        let review_path = reviews_dir.join(format!("{}.md", plan_stem));
+        if let Err(e) = fs::write(&review_path, &output) {
+            eprintln!("[hydra] Warning: Could not write review file: {}", e);
+        } else {
+            println!("[hydra] Review saved to {}", review_path.display());
+        }
     }
 
     Ok(())

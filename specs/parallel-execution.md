@@ -19,10 +19,19 @@ Run all plans in a folder concurrently via a Claude Code global skill that orche
 - The final summary highlights all failures with their exit codes
 - Users can re-run individual failed plans manually after reviewing
 
+### Resuming Interrupted Runs
+- Progress is tracked in `<plan-folder>/.hydra-parallel-progress` (JSONL dotfile)
+- Each completed plan is recorded as a JSON line: `{"plan":"name.md","status":"PASS|FAIL","exit":0}`
+- On re-run, previously completed plans are skipped automatically
+- Users see which plans are being skipped and which are queued for execution
+- If all plans are already recorded as complete, the skill shows the summary and stops
+- Users delete `.hydra-parallel-progress` manually to force a full re-run
+- The progress file is never auto-deleted
+
 ### No-Review Mode
-- Users can run `hydra <plan> --no-review` to skip the interactive plan review step
-- The parallel skill uses `--no-review` internally so subagent hydra processes don't block on review
-- `--no-review` is also useful standalone when users want fast iteration without review
+- Users can run `hydra <plan> --no-review` to skip the plan review step
+- In headless mode, the review runs non-interactively via `claude -p` so `--no-review` is no longer required for parallel execution
+- `--no-review` is still useful when users want to skip the review entirely (both interactive and headless)
 
 ## Constraints
 
@@ -36,11 +45,19 @@ Run all plans in a folder concurrently via a Claude Code global skill that orche
 - Skill globs `<folder>/*.md` to discover plan files
 - If folder is empty or has no `.md` files, report and exit
 
+### Progress File
+- Location: `<plan-folder>/.hydra-parallel-progress`
+- Format: JSONL (one JSON object per line, append-only)
+- Each line: `{"plan":"<filename>","status":"PASS"|"FAIL","exit":<code>}`
+- Read on startup to determine which plans to skip
+- Appended after each plan completes (crash-safe — partial writes don't corrupt prior lines)
+- Never auto-deleted — user removes manually to start fresh
+
 ### Execution Model
 - One `general-purpose` background subagent per active plan
 - Sliding window: max N subagents running at once
 - When a subagent completes, the next plan from the queue is launched
-- Each subagent runs `hydra <plan> --headless --no-review` via Bash
+- Each subagent runs `hydra <plan> --headless` via Bash
 - Subagents absorb verbose hydra output in their own context window
 - Subagents return only: plan name, exit code, and errors/concerns (if any)
 

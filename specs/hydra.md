@@ -112,6 +112,7 @@ The implementation plan is located at: [plan file path]
 
 ./.hydra/                    # Per-project (auto-created on first run)
 ├── logs/                    # Session logs
+├── reviews/                 # Headless plan review outputs
 ├── scratchpad/              # Cross-iteration notes (auto-created with plan)
 └── prompt.md                # Project-specific prompt (optional)
 ```

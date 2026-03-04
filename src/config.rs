@@ -101,6 +101,11 @@ impl Config {
         Self::local_hydra_dir().join("scratchpad")
     }
 
+    /// Get the path to the reviews directory (./.hydra/reviews)
+    pub fn reviews_dir() -> PathBuf {
+        Self::local_hydra_dir().join("reviews")
+    }
+
     /// Merge CLI options over config values
     /// CLI options take precedence when provided
     pub fn merge_cli(&mut self, max: Option<u32>, verbose: bool, timeout: Option<u64>) {

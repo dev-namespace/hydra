@@ -22,7 +22,7 @@ Claude Code skills, local-dev-guide, deploy-and-check, hydra init extension, ski
 
 ## [Parallel Execution](./parallel-execution.md)
 
-Parallel plan execution, folder of plans, concurrency sliding window, --parallel flag, background subagents, orchestrator skill, /hydra skill, global skill, batch plans, --no-review, plan queue, live progress, summary table, concurrent hydra sessions.
+Parallel plan execution, folder of plans, concurrency sliding window, --parallel flag, background subagents, orchestrator skill, /hydra skill, global skill, batch plans, --no-review, plan queue, live progress, summary table, concurrent hydra sessions, resume, progress tracking, .hydra-parallel-progress, JSONL, interrupted runs, skip completed plans.
 
 **Source**: `~/.claude/skills/hydra/SKILL.md`, `src/cli.rs` (--no-review flag), `src/main.rs` (review guard)
 

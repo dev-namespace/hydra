@@ -49,6 +49,10 @@ pub struct Cli {
     #[arg(long)]
     pub no_review: bool,
 
+    /// Use headless mode (claude -p pipe mode instead of PTY)
+    #[arg(long)]
+    pub headless: bool,
+
     /// Timeout per iteration in seconds (default: 1200 = 20 minutes)
     /// If Claude doesn't output a stop signal within this time, the iteration is terminated
     #[arg(short, long, default_value = "1200")]

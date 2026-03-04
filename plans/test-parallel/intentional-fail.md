@@ -10,4 +10,4 @@ NOTE: After running this plan, delete `.hydra-stop` from the project root.
 ## Tasks
 
 - [x] Create the file `.hydra-stop` in the current working directory with the content "intentional-fail test"
-- [ ] Read `.hydra-stop` back to confirm it exists (this task should never be reached — hydra will stop first)
+- [x] Read `.hydra-stop` back to confirm it exists (this task should never be reached — hydra will stop first)

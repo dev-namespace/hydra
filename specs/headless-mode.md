@@ -40,11 +40,12 @@ Non-interactive execution mode using `claude -p` instead of PTY. Designed for au
 
 ### Stream-JSON Parsing
 - Hydra reads newline-delimited JSON from Claude's stdout
-- Filters for `stream_event` objects where `event.delta.type == "text_delta"`
-- Extracts `event.delta.text` and appends to a text accumulator
+- Filters for `assistant` messages (`{"type":"assistant","message":{"content":[...]}}`)
+- Extracts text from content blocks (`{"text":"..."}`) and appends to a text accumulator
+- Ignores tool_use content blocks, system events, user messages, and result events
 - Scans accumulator for `###TASK_COMPLETE###` and `###ALL_TASKS_COMPLETE###`
 - Text content is simultaneously written to the session log file
-- No ANSI stripping needed (stream-json text deltas are plain text)
+- No ANSI stripping needed (stream-json text content is plain text)
 
 ### Timeout Handling
 - Same `--timeout` flag applies (default: 1200s)
@@ -63,6 +64,12 @@ Non-interactive execution mode using `claude -p` instead of PTY. Designed for au
 - Log contains extracted text content from stream-json (not raw JSON)
 - Iteration markers logged same as PTY mode
 
+### Plan Review in Headless Mode
+- When all tasks complete and `--no-review` is not set, plan review runs non-interactively
+- Review uses `claude -p --dangerously-skip-permissions` with the review prompt piped via stdin
+- Review output is saved to `.hydra/reviews/<plan-name>.md` for the user to read later
+- This allows parallel subagents to get automatic quality reviews without blocking
+
 ### What Headless Mode Skips
 - No PTY allocation (`portable-pty` not used)
 - No terminal raw mode (`crossterm` not used)
@@ -72,7 +79,7 @@ Non-interactive execution mode using `claude -p` instead of PTY. Designed for au
 
 ### Parallel Skill Integration
 - The `/hydra` parallel skill always passes `--headless` when running plans via subagents
-- Combined with `--no-review`: `hydra <plan> --headless --no-review`
+- Plan review runs non-interactively via `claude -p` (no need for `--no-review`)
 - Eliminates PTY-in-non-terminal issues entirely
 
 ## Related specs
