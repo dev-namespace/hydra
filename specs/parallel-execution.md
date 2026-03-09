@@ -101,7 +101,7 @@ Run tasks within a single implementation plan concurrently by analyzing dependen
 - Users delete `progress.jsonl` to force a full re-run
 
 #### Scratchpad
-- Each task gets its own scratchpad: `.hydra/scratchpad/<plan-name>/task-N.md`
+- Each task gets its own scratchpad: `.hydra/scratchpad/<plan-name>-wave-N-task-M.md` (derived by hydra from the mini-plan filename)
 - Between waves, task scratchpads are merged into the main scratchpad with wave-stamped sections:
   ```
   ## Wave 1 Results
@@ -157,7 +157,7 @@ Run tasks within a single implementation plan concurrently by analyzing dependen
 - Verification tasks always go in the final wave
 
 #### Mini-Plan Generation
-- For each task, the orchestrator generates a mini-plan file in `.hydra/waves/<plan-name>/wave-N-task-M.md`
+- For each task, the orchestrator generates a mini-plan file in `.hydra/waves/<plan-name>/<plan-name>-wave-N-task-M.md` (plan-name prefix ensures unique scratchpad paths across concurrent plans)
 - Each mini-plan contains:
   - The plan summary (from original plan) for context
   - The specific task description
@@ -201,8 +201,11 @@ Run tasks within a single implementation plan concurrently by analyzing dependen
 ## Shared Constraints
 
 ### Skill Location
-- Global skill at `~/.claude/skills/hydra/SKILL.md`
-- Available in all projects without project-specific setup
+- Router skill at `~/.claude/skills/hydra/SKILL.md` — argument parsing and mode detection only
+- Parallel plans skill at `~/.claude/skills/hydra-parallel-plans/SKILL.md`
+- Parallel tasks skill at `~/.claude/skills/hydra-parallel-tasks/SKILL.md`
+- All three are global skills, available in all projects without project-specific setup
+- The router delegates to the appropriate sub-skill via the Skill tool
 
 ### Mode Detection
 - If `$0` is a **directory**: parallel-plans mode
@@ -227,6 +230,8 @@ Run tasks within a single implementation plan concurrently by analyzing dependen
 
 ## Source
 
-- `~/.claude/skills/hydra/SKILL.md` - global skill (both modes)
+- `~/.claude/skills/hydra/SKILL.md` - router skill (argument parsing, mode detection)
+- `~/.claude/skills/hydra-parallel-plans/SKILL.md` - parallel plans orchestration
+- `~/.claude/skills/hydra-parallel-tasks/SKILL.md` - parallel tasks orchestration
 - [src/cli.rs](../src/cli.rs) - CLI argument definitions (`--no-review`, `--headless`)
 - [src/main.rs](../src/main.rs) - plan review conditional

@@ -195,8 +195,10 @@ impl HeadlessRunner {
     /// Run a single headless iteration
     fn run_iteration(&mut self, iteration: u32) -> Result<IterationResult> {
         println!(
-            "[hydra] Iteration {}/{}...",
-            iteration, self.config.max_iterations
+            "[hydra] Iteration {}/{}... [{}]",
+            iteration,
+            self.config.max_iterations,
+            Local::now().format("%Y-%m-%d %H:%M:%S")
         );
 
         let combined_prompt = self.create_combined_prompt();

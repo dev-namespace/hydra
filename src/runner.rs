@@ -210,7 +210,11 @@ impl Runner {
             eprintln!("[hydra:debug] Starting iteration {}", iteration);
         }
 
-        println!("[hydra] Run #{} starting...", iteration);
+        println!(
+            "[hydra] Run #{} starting... [{}]",
+            iteration,
+            Local::now().format("%H:%M:%S")
+        );
 
         // Create the combined prompt file
         let prompt_file = self.create_combined_prompt()?;
@@ -247,7 +251,11 @@ impl Runner {
             let _ = logger.append_content(&output_content);
         }
 
-        println!("[hydra] Run #{} complete", iteration);
+        println!(
+            "[hydra] Run #{} complete [{}]",
+            iteration,
+            Local::now().format("%H:%M:%S")
+        );
 
         Ok(result)
     }
@@ -297,7 +305,12 @@ impl Runner {
 
             // Display iteration header
             println!();
-            println!("=== Iteration {}/{} ===", iteration, max);
+            println!(
+                "=== Iteration {}/{} === [{}]",
+                iteration,
+                max,
+                Local::now().format("%Y-%m-%d %H:%M:%S")
+            );
             println!();
 
             // Log iteration start
