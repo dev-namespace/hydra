@@ -22,9 +22,9 @@ Claude Code skills, local-dev-guide, deploy-and-check, hydra init extension, ski
 
 ## [Parallel Execution](./parallel-execution.md)
 
-Parallel plan execution, parallel tasks, folder of plans, wave-based execution, dependency analysis, concurrency sliding window, --parallel-plans flag, --parallel-tasks flag, --worktree, background subagents, orchestrator skill, /hydra skill, global skill, batch plans, --no-review, plan queue, live progress, summary table, concurrent hydra sessions, resume, progress tracking, .hydra-parallel-progress, JSONL, interrupted runs, skip completed plans, mini-plans, wave plan, scratchpad merge, task isolation, git worktree.
+Parallel plan execution, parallel tasks, folder of plans, wave-based execution, dependency analysis, concurrency sliding window, --parallel-plans flag, --parallel-tasks flag, --worktree, background subagents, orchestrator skill, /parallel-hydra skill, global skill, batch plans, --no-review, plan queue, live progress, summary table, concurrent hydra sessions, resume, progress tracking, .hydra-parallel-progress, JSONL, interrupted runs, skip completed plans, mini-plans, wave plan, scratchpad merge, task isolation, git worktree.
 
-**Source**: `~/.claude/skills/hydra/SKILL.md` (router), `~/.claude/skills/hydra-parallel-plans/SKILL.md`, `~/.claude/skills/hydra-parallel-tasks/SKILL.md`, `src/cli.rs` (--no-review flag), `src/main.rs` (review guard)
+**Source**: `~/.claude/skills/parallel-hydra/SKILL.md` (router), `~/.claude/skills/hydra-parallel-plans/SKILL.md`, `~/.claude/skills/hydra-parallel-tasks/SKILL.md`, `src/cli.rs` (--no-review flag), `src/main.rs` (review guard)
 
 ---
 

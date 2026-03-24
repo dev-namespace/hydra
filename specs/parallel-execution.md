@@ -1,6 +1,6 @@
 # Parallel Execution
 
-Two modes for concurrent execution via the `/hydra` global skill: **parallel-plans** (run independent plan files concurrently) and **parallel-tasks** (run tasks within a single plan concurrently by wave).
+Two modes for concurrent execution via the `/parallel-hydra` global skill: **parallel-plans** (run independent plan files concurrently) and **parallel-tasks** (run tasks within a single plan concurrently by wave).
 
 ## Parallel Plans Mode
 
