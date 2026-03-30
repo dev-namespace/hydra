@@ -15,7 +15,7 @@ pub struct Config {
     /// Name of the stop file to check for graceful shutdown
     pub stop_file: String,
 
-    /// Timeout per iteration in seconds (default: 1200 = 20 minutes)
+    /// Timeout per iteration in seconds (default: 3000 = 50 minutes)
     pub timeout_seconds: u64,
 }
 
@@ -25,7 +25,7 @@ impl Default for Config {
             max_iterations: 20,
             verbose: false,
             stop_file: ".hydra-stop".to_string(),
-            timeout_seconds: 1200, // 20 minutes
+            timeout_seconds: 3000, // 50 minutes
         }
     }
 }
@@ -134,7 +134,7 @@ mod tests {
         assert_eq!(config.max_iterations, 20);
         assert!(!config.verbose);
         assert_eq!(config.stop_file, ".hydra-stop");
-        assert_eq!(config.timeout_seconds, 1200);
+        assert_eq!(config.timeout_seconds, 3000);
     }
 
     #[test]
@@ -179,7 +179,7 @@ timeout_seconds = 600
         let mut config = Config::default();
         assert_eq!(config.max_iterations, 20);
         assert!(!config.verbose);
-        assert_eq!(config.timeout_seconds, 1200);
+        assert_eq!(config.timeout_seconds, 3000);
 
         // Merge with CLI options
         config.merge_cli(Some(25), true, Some(300));

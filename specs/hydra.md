@@ -8,7 +8,7 @@ Automated Claude Code task runner. Executes tasks from implementation plans in a
 - Users can run `hydra` to start automated task execution
 - Users can run `hydra <plan>` to run with an implementation plan injected
 - Users can specify maximum iterations with `--max N`
-- Users can specify iteration timeout with `--timeout N` (seconds, default: 1200 = 20 minutes)
+- Users can specify iteration timeout with `--timeout N` (seconds, default: 3000 = 50 minutes)
 - Users can preview configuration with `--dry-run` without executing
 - Users can enable debug output with `--verbose`
 - Users can override the prompt file with `--prompt <path>`
@@ -64,7 +64,7 @@ hydra --install             # Install to ~/.local/bin
 ### Options
 - `--prompt <path>`, `-p`: Override system prompt file
 - `--max <N>`, `-m`: Maximum iterations (default: 20)
-- `--timeout <N>`, `-t`: Iteration timeout in seconds (default: 1200 = 20 minutes)
+- `--timeout <N>`, `-t`: Iteration timeout in seconds (default: 3000 = 50 minutes)
 - `--reset-plan`: Uncheck all plan checkboxes (`- [x]` → `- [ ]`) and reset scratchpad to initial header. Requires a plan file argument.
 - `--dry-run`: Preview configuration without executing
 - `--verbose`, `-v`: Enable debug output
@@ -91,7 +91,8 @@ The implementation plan is located at: [plan file path]
 - Claude must output `###TASK_COMPLETE###` when one task is done but more remain
 - Claude must output `###ALL_TASKS_COMPLETE###` when all tasks are finished
 - Hydra monitors output and terminates the iteration upon signal detection
-- If no stop signal is received within the timeout period (default: 20 minutes), hydra terminates the iteration and starts the next one (safety mechanism)
+- If no stop signal is received within the timeout period (default: 50 minutes), hydra terminates the iteration and starts the next one (safety mechanism)
+- When a timeout occurs and a scratchpad exists, hydra appends a timeout note to the scratchpad including the iteration number, timestamp, and log file path — so the next iteration can check what was in progress and resume or retry the interrupted work
 
 ### Exit Codes
 - `0`: Success (all tasks complete, max iterations reached, or dry-run)
@@ -100,7 +101,7 @@ The implementation plan is located at: [plan file path]
 
 ### Configuration Defaults
 - Max iterations: 20
-- Timeout: 1200 seconds (20 minutes)
+- Timeout: 3000 seconds (50 minutes)
 - Verbose: false
 - Stop file: `.hydra-stop`
 
@@ -159,7 +160,7 @@ The synchronized output mode (`[?2026h`) is particularly important - if Claude's
 ### Config File (`~/.hydra/config.toml`)
 ```toml
 max_iterations = 10
-timeout_seconds = 1200
+timeout_seconds = 3000
 verbose = false
 stop_file = ".hydra-stop"
 ```

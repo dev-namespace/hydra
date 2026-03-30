@@ -48,7 +48,7 @@ Non-interactive execution mode using `claude -p` instead of PTY. Designed for au
 - No ANSI stripping needed (stream-json text content is plain text)
 
 ### Timeout Handling
-- Same `--timeout` flag applies (default: 1200s)
+- Same `--timeout` flag applies (default: 3000s)
 - If Claude's process exceeds timeout, hydra sends SIGTERM then SIGKILL
 - Timeout triggers next iteration (same behavior as PTY mode)
 

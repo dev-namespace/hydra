@@ -150,10 +150,16 @@ pub struct HeadlessRunner {
     should_stop: Arc<AtomicBool>,
     logger: Option<SessionLogger>,
     plan_name: Option<String>,
+    scratchpad_path: Option<PathBuf>,
 }
 
 impl HeadlessRunner {
-    pub fn new(config: Config, prompt: ResolvedPrompt, plan_name: Option<String>) -> Self {
+    pub fn new(
+        config: Config,
+        prompt: ResolvedPrompt,
+        plan_name: Option<String>,
+        scratchpad_path: Option<PathBuf>,
+    ) -> Self {
         let logger = match SessionLogger::new(plan_name.as_deref()) {
             Ok(l) => Some(l),
             Err(e) => {
@@ -168,6 +174,7 @@ impl HeadlessRunner {
             should_stop: Arc::new(AtomicBool::new(false)),
             logger,
             plan_name,
+            scratchpad_path,
         }
     }
 
@@ -179,6 +186,37 @@ impl HeadlessRunner {
     /// Create the combined prompt string (iteration instructions + user prompt)
     fn create_combined_prompt(&self) -> String {
         format!("{}\n{}", ITERATION_INSTRUCTIONS, self.prompt.content)
+    }
+
+    /// Append a timeout note to the scratchpad so the next iteration knows to check logs
+    fn append_timeout_to_scratchpad(&self, iteration: u32) {
+        let Some(ref scratchpad_path) = self.scratchpad_path else {
+            return;
+        };
+        let log_path = self
+            .logger
+            .as_ref()
+            .map(|l| l.path.display().to_string())
+            .unwrap_or_else(|| "the session log".to_string());
+        let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S");
+        let note = format!(
+            "\n## ⚠ Timeout — Iteration {} ({})\n\n\
+             The previous iteration (#{}) was terminated due to timeout ({}s limit).\n\
+             **Next iteration**: Check the logs at `{}` to understand what was in progress \
+             and resume or retry the interrupted work.\n",
+            iteration, timestamp, iteration, self.config.timeout_seconds, log_path,
+        );
+        if let Err(e) = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(scratchpad_path)
+            .and_then(|mut f| f.write_all(note.as_bytes()))
+        {
+            eprintln!(
+                "[hydra] Warning: Could not write timeout note to scratchpad: {}",
+                e
+            );
+        }
     }
 
     /// Check if the stop file exists
@@ -402,9 +440,14 @@ impl HeadlessRunner {
                         iterations: iteration,
                     });
                 }
-                IterationResult::TaskComplete
-                | IterationResult::NoSignal
-                | IterationResult::Timeout => {
+                IterationResult::Timeout => {
+                    self.append_timeout_to_scratchpad(iteration);
+                    self.should_stop.store(false, Ordering::SeqCst);
+                    if self.config.verbose {
+                        eprintln!("[hydra:debug] Timeout recorded in scratchpad, continuing");
+                    }
+                }
+                IterationResult::TaskComplete | IterationResult::NoSignal => {
                     // Reset should_stop flag (may have been set during teardown)
                     self.should_stop.store(false, Ordering::SeqCst);
                     if self.config.verbose {

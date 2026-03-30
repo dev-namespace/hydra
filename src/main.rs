@@ -72,7 +72,7 @@ fn run(cli: Cli) -> Result<()> {
     config.merge_cli(
         if cli.max != 20 { Some(cli.max) } else { None },
         cli.verbose,
-        if cli.timeout != 1200 {
+        if cli.timeout != 3000 {
             Some(cli.timeout)
         } else {
             None
@@ -157,6 +157,7 @@ fn run(cli: Cli) -> Result<()> {
         }
 
         // If a plan file is provided, inject a reference to it in the prompt
+        let mut scratchpad_path: Option<PathBuf> = None;
         if let Some(ref plan_path) = cli.plan {
             // Verify plan file exists
             if !plan_path.exists() {
@@ -182,18 +183,19 @@ fn run(cli: Cli) -> Result<()> {
                     .file_stem()
                     .and_then(|s| s.to_str())
                     .unwrap_or("scratchpad");
-                let scratchpad_path = scratchpad_dir.join(format!("{}.md", plan_stem));
-                if !scratchpad_path.exists() {
+                let sp = scratchpad_dir.join(format!("{}.md", plan_stem));
+                if !sp.exists() {
                     let header = format!(
                         "# Scratchpad — {}\n\nCross-iteration notes for this plan.\n",
                         plan_stem
                     );
-                    if let Err(e) = fs::write(&scratchpad_path, header) {
+                    if let Err(e) = fs::write(&sp, header) {
                         eprintln!("[hydra] Warning: Could not create scratchpad file: {}", e);
                     }
                 }
                 // Inject scratchpad path into prompt
-                resolved.content = inject_scratchpad_path(&resolved.content, &scratchpad_path);
+                resolved.content = inject_scratchpad_path(&resolved.content, &sp);
+                scratchpad_path = Some(sp);
             }
         }
 
@@ -234,7 +236,8 @@ fn run(cli: Cli) -> Result<()> {
 
             let result = if cli.headless {
                 // Headless mode: use claude -p pipe mode
-                let mut runner = HeadlessRunner::new(config.clone(), resolved, plan_name);
+                let mut runner =
+                    HeadlessRunner::new(config.clone(), resolved, plan_name, scratchpad_path);
 
                 let stop_flag = runner.stop_flag();
                 if let Err(e) = signal::install_handlers(stop_flag) {
@@ -262,7 +265,8 @@ fn run(cli: Cli) -> Result<()> {
                 println!("─────────────────────────────────────────");
                 println!();
 
-                let mut runner = Runner::new(config.clone(), resolved, plan_name);
+                let mut runner =
+                    Runner::new(config.clone(), resolved, plan_name, scratchpad_path);
 
                 let stop_flag = runner.stop_flag();
                 if let Err(e) = signal::install_handlers(stop_flag) {
