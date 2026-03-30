@@ -27,6 +27,7 @@ Automated Claude Code task runner. Executes tasks from implementation plans in a
 
 ### Project Setup
 - Users can run `hydra init` to interactively set up skills and optionally create a `.hydra/` directory
+- Users can run `hydra init --quick` to just create the `.hydra/` folder without any interactive prompts
 - Users can run `hydra --install` to install the binary to `~/.local/bin`
 
 ### Prompt Configuration
@@ -57,7 +58,8 @@ Automated Claude Code task runner. Executes tasks from implementation plans in a
 ### CLI Signature
 ```
 hydra [PLAN] [OPTIONS]      # Run task loop (plan is optional)
-hydra init                  # Initialize .hydra/ directory
+hydra init                  # Initialize .hydra/ directory (interactive)
+hydra init --quick          # Just create .hydra/ folder, no prompts
 hydra --install             # Install to ~/.local/bin
 ```
 

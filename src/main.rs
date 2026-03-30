@@ -87,7 +87,7 @@ fn run(cli: Cli) -> Result<()> {
     if cli.is_install() {
         install_command()
     } else if cli.is_init() {
-        init_command(config.verbose)
+        init_command(config.verbose, cli.is_init_quick())
     } else if cli.is_tui() {
         // TUI mode
         let mut resolved = resolve_prompt(cli.prompt.as_ref())?;
@@ -265,8 +265,7 @@ fn run(cli: Cli) -> Result<()> {
                 println!("─────────────────────────────────────────");
                 println!();
 
-                let mut runner =
-                    Runner::new(config.clone(), resolved, plan_name, scratchpad_path);
+                let mut runner = Runner::new(config.clone(), resolved, plan_name, scratchpad_path);
 
                 let stop_flag = runner.stop_flag();
                 if let Err(e) = signal::install_handlers(stop_flag) {
@@ -363,7 +362,13 @@ fn load_prompt_template() -> String {
 }
 
 /// Initialize project with optional skill setup and .hydra/ directory creation
-fn init_command(verbose: bool) -> Result<()> {
+fn init_command(verbose: bool, quick: bool) -> Result<()> {
+    if quick {
+        // Just create the .hydra/ folder, no questions asked
+        create_hydra_directory(verbose)?;
+        return Ok(());
+    }
+
     // Prompt for skill setup first
     setup_skills(verbose)?;
 

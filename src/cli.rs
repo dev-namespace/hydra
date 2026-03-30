@@ -62,7 +62,11 @@ pub struct Cli {
 #[derive(Subcommand, Debug)]
 pub enum Command {
     /// Initialize .hydra/ directory in current project
-    Init,
+    Init {
+        /// Just create the .hydra/ folder without asking any questions
+        #[arg(long)]
+        quick: bool,
+    },
 
     /// Start TUI mode with multi-tab interface
     Tui {
@@ -75,7 +79,12 @@ pub enum Command {
 impl Cli {
     /// Check if this is an init command
     pub fn is_init(&self) -> bool {
-        matches!(self.command, Some(Command::Init))
+        matches!(self.command, Some(Command::Init { .. }))
+    }
+
+    /// Check if init --quick was passed
+    pub fn is_init_quick(&self) -> bool {
+        matches!(self.command, Some(Command::Init { quick: true }))
     }
 
     /// Check if this is a tui command
