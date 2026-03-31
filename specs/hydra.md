@@ -38,7 +38,7 @@ Automated Claude Code task runner. Executes tasks from implementation plans in a
 
 ### Plan Review
 - After all tasks complete, if a plan file was provided, hydra automatically launches a plan review in a new interactive Claude session
-- The review session runs `/plan-review <plan-path>` so the user can see a quality report and interact with Claude to discuss findings
+- The review session runs `/hydra-review <plan-path>` so the user can see a quality report and interact with Claude to discuss findings
 - If the review fails to launch, hydra prints a warning but still exits successfully
 
 ### Stopping Execution

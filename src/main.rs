@@ -285,7 +285,7 @@ fn run(cli: Cli) -> Result<()> {
                 println!();
 
                 // Build the review prompt — scratchpad is read by the skill itself
-                let review_prompt = format!("/plan-review {}", plan_path.display());
+                let review_prompt = format!("/hydra-review {}", plan_path.display());
                 let temp_dir = std::env::temp_dir();
                 let review_file = temp_dir.join("hydra-plan-review.md");
                 if let Err(e) = fs::write(&review_file, &review_prompt) {
