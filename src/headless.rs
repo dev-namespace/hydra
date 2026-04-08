@@ -87,7 +87,34 @@ impl SessionLogger {
     }
 }
 
-/// Parse stream-json output from `claude -p --output-format stream-json`
+/// Trait implemented by per-harness stream-json parsers so the headless
+/// runner can iterate over child stdout without knowing which harness is
+/// producing the events.
+trait HarnessStreamParser {
+    /// Process a single newline-delimited JSON line from the harness.
+    /// Returns `Some(text)` when text content was extracted for logging,
+    /// `None` otherwise.
+    fn process_line(&mut self, line: &str) -> Option<String>;
+
+    /// Inspect the accumulated text and return an `IterationResult` if a
+    /// stop signal (`###TASK_COMPLETE###` / `###ALL_TASKS_COMPLETE###`)
+    /// has been observed.
+    fn check_stop_signal(&self) -> Option<IterationResult>;
+}
+
+/// Default stop-signal scanner used by both parsers. `ALL_TASKS_COMPLETE`
+/// takes priority when both signals appear in the same accumulator.
+fn scan_stop_signal(accumulator: &str) -> Option<IterationResult> {
+    if accumulator.contains("###ALL_TASKS_COMPLETE###") {
+        Some(IterationResult::AllComplete)
+    } else if accumulator.contains("###TASK_COMPLETE###") {
+        Some(IterationResult::TaskComplete)
+    } else {
+        None
+    }
+}
+
+/// Parse stream-json output from `claude -p --output-format stream-json`.
 ///
 /// Claude Code's stream-json format emits newline-delimited JSON objects.
 /// Assistant messages have `{"type":"assistant","message":{"content":[...]}}`.
@@ -104,9 +131,9 @@ impl StreamJsonParser {
             text_accumulator: String::new(),
         }
     }
+}
 
-    /// Process a single line of stream-json output.
-    /// Returns Some(text) if text content was extracted, None otherwise.
+impl HarnessStreamParser for StreamJsonParser {
     fn process_line(&mut self, line: &str) -> Option<String> {
         let value: serde_json::Value = serde_json::from_str(line).ok()?;
 
@@ -132,15 +159,61 @@ impl StreamJsonParser {
         Some(extracted)
     }
 
-    /// Check if a stop signal has been detected in the accumulated text
     fn check_stop_signal(&self) -> Option<IterationResult> {
-        if self.text_accumulator.contains("###ALL_TASKS_COMPLETE###") {
-            Some(IterationResult::AllComplete)
-        } else if self.text_accumulator.contains("###TASK_COMPLETE###") {
-            Some(IterationResult::TaskComplete)
-        } else {
-            None
+        scan_stop_signal(&self.text_accumulator)
+    }
+}
+
+/// Parse stream-json output from `pi -p --mode json`.
+///
+/// Pi's JSON event stream is newline-delimited. Hydra only cares about
+/// assistant text events — specifically `message_update` events whose
+/// `assistantMessageEvent.type` is `text_delta`, where `delta` carries
+/// the new text chunk. Thinking deltas, tool-call deltas, session headers,
+/// `agent_start`/`agent_end`, and `text_start`/`text_end` bookends are all
+/// ignored for logging purposes (we already captured the deltas).
+///
+/// See `packages/coding-agent/docs/json.md` in the pi-mono repo and
+/// `AssistantMessageEvent` in `packages/ai/src/types.ts` for the full
+/// schema.
+struct PiStreamJsonParser {
+    /// Accumulated text_delta chunks across the entire iteration.
+    text_accumulator: String,
+}
+
+impl PiStreamJsonParser {
+    fn new() -> Self {
+        Self {
+            text_accumulator: String::new(),
         }
+    }
+}
+
+impl HarnessStreamParser for PiStreamJsonParser {
+    fn process_line(&mut self, line: &str) -> Option<String> {
+        let value: serde_json::Value = serde_json::from_str(line).ok()?;
+
+        // Only message_update events carry assistant deltas.
+        if value.get("type")?.as_str()? != "message_update" {
+            return None;
+        }
+
+        let event = value.get("assistantMessageEvent")?;
+        if event.get("type")?.as_str()? != "text_delta" {
+            return None;
+        }
+
+        let delta = event.get("delta")?.as_str()?;
+        if delta.is_empty() {
+            return None;
+        }
+
+        self.text_accumulator.push_str(delta);
+        Some(delta.to_string())
+    }
+
+    fn check_stop_signal(&self) -> Option<IterationResult> {
+        scan_stop_signal(&self.text_accumulator)
     }
 }
 
@@ -268,19 +341,30 @@ impl HeadlessRunner {
 
         // Write prompt to stdin, then close it
         if let Some(mut stdin) = child.stdin.take() {
-            stdin
-                .write_all(combined_prompt.as_bytes())
-                .map_err(|e| HydraError::io("writing prompt to claude stdin", e))?;
+            stdin.write_all(combined_prompt.as_bytes()).map_err(|e| {
+                HydraError::io(
+                    format!("writing prompt to {} stdin", self.harness.command()),
+                    e,
+                )
+            })?;
             // stdin is dropped here, closing the pipe
         }
 
-        // Read stdout through StreamJsonParser
+        // Read stdout through the harness-specific parser
         let stdout = child.stdout.take().ok_or_else(|| {
-            HydraError::io("taking claude stdout", std::io::Error::other("no stdout"))
+            HydraError::io(
+                format!("taking {} stdout", self.harness.command()),
+                std::io::Error::other("no stdout"),
+            )
         })?;
 
         let reader = BufReader::new(stdout);
-        let mut parser = StreamJsonParser::new();
+        // Pick the parser matching the active harness. Both implement
+        // HarnessStreamParser so the loop body below stays identical.
+        let mut parser: Box<dyn HarnessStreamParser> = match self.harness {
+            Harness::Claude => Box::new(StreamJsonParser::new()),
+            Harness::Pi => Box::new(PiStreamJsonParser::new()),
+        };
         let mut result = IterationResult::NoSignal;
 
         // Set up timeout
@@ -291,7 +375,8 @@ impl HeadlessRunner {
             // Check timeout
             if start_time.elapsed().as_secs() >= timeout_secs {
                 eprintln!(
-                    "[hydra] Iteration timeout ({timeout_secs}s), terminating claude process"
+                    "[hydra] Iteration timeout ({timeout_secs}s), terminating {} process",
+                    self.harness.command()
                 );
                 // Kill the child process group
                 let pid = child_id as i32;
@@ -562,5 +647,137 @@ mod tests {
             parser.check_stop_signal(),
             Some(IterationResult::AllComplete)
         );
+    }
+
+    // ----- PiStreamJsonParser tests ---------------------------------------
+
+    #[test]
+    fn test_pi_parser_text_delta_extracts_delta() {
+        let mut parser = PiStreamJsonParser::new();
+        let line = r#"{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":1,"delta":"Hello "}}"#;
+        let result = parser.process_line(line);
+        assert_eq!(result, Some("Hello ".to_string()));
+        assert_eq!(parser.text_accumulator, "Hello ");
+
+        let line = r#"{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":1,"delta":"world!"}}"#;
+        let result = parser.process_line(line);
+        assert_eq!(result, Some("world!".to_string()));
+        assert_eq!(parser.text_accumulator, "Hello world!");
+    }
+
+    #[test]
+    fn test_pi_parser_ignores_non_text_delta_events() {
+        let mut parser = PiStreamJsonParser::new();
+
+        // Session header
+        let line = r#"{"type":"session","version":3,"id":"uuid","cwd":"/"}"#;
+        assert!(parser.process_line(line).is_none());
+
+        // Lifecycle events
+        assert!(parser.process_line(r#"{"type":"agent_start"}"#).is_none());
+        assert!(parser.process_line(r#"{"type":"turn_start"}"#).is_none());
+        assert!(
+            parser
+                .process_line(r#"{"type":"message_start","message":{}}"#)
+                .is_none()
+        );
+        assert!(parser.process_line(r#"{"type":"agent_end"}"#).is_none());
+
+        // thinking_delta should be ignored
+        let line = r#"{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","contentIndex":0,"delta":"hmm"}}"#;
+        assert!(parser.process_line(line).is_none());
+
+        // toolcall_delta should be ignored
+        let line = r#"{"type":"message_update","assistantMessageEvent":{"type":"toolcall_delta","contentIndex":0,"delta":"{\"cmd\":\"ls\"}"}}"#;
+        assert!(parser.process_line(line).is_none());
+
+        // text_start / text_end are bookends (no new chunk to append)
+        let line = r#"{"type":"message_update","assistantMessageEvent":{"type":"text_start","contentIndex":1}}"#;
+        assert!(parser.process_line(line).is_none());
+        let line = r#"{"type":"message_update","assistantMessageEvent":{"type":"text_end","contentIndex":1,"content":"final"}}"#;
+        assert!(parser.process_line(line).is_none());
+
+        // Invalid JSON
+        assert!(parser.process_line("not json").is_none());
+        // Missing fields
+        assert!(
+            parser
+                .process_line(r#"{"type":"message_update"}"#)
+                .is_none()
+        );
+
+        assert_eq!(parser.text_accumulator, "");
+    }
+
+    #[test]
+    fn test_pi_parser_empty_delta_returns_none() {
+        let mut parser = PiStreamJsonParser::new();
+        let line = r#"{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":""}}"#;
+        assert!(parser.process_line(line).is_none());
+        assert_eq!(parser.text_accumulator, "");
+    }
+
+    #[test]
+    fn test_pi_parser_stop_signals() {
+        let mut parser = PiStreamJsonParser::new();
+        assert!(parser.check_stop_signal().is_none());
+
+        // Simulate a stream that ends with TASK_COMPLETE. The raw string
+        // delimiters use four hashes because the payload contains `"###`
+        // sequences (any `"` followed by >= N hashes would otherwise close
+        // an `r##`-delimited literal).
+        let lines = [
+            r####"{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"Working...\n"}}"####,
+            r####"{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"###TASK_COMPLETE###"}}"####,
+        ];
+        for line in lines {
+            parser.process_line(line);
+        }
+        assert_eq!(
+            parser.check_stop_signal(),
+            Some(IterationResult::TaskComplete)
+        );
+
+        // And ALL_TASKS_COMPLETE takes priority
+        parser.process_line(
+            r####"{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"\n###ALL_TASKS_COMPLETE###"}}"####,
+        );
+        assert_eq!(
+            parser.check_stop_signal(),
+            Some(IterationResult::AllComplete)
+        );
+    }
+
+    #[test]
+    fn test_pi_parser_realistic_sample() {
+        // Captured from a real `pi -p --mode json --no-tools` invocation
+        // that was asked to reply with just "DONE". The stream includes
+        // session header, agent/turn lifecycle events, thinking bookends,
+        // and a text_start / text_delta / text_end triplet for the final
+        // answer. Only the text_delta should produce output.
+        let sample = r#"{"type":"session","version":3,"id":"uuid","timestamp":"...","cwd":"/tmp"}
+{"type":"agent_start"}
+{"type":"turn_start"}
+{"type":"message_start","message":{"role":"user","content":[]}}
+{"type":"message_end","message":{"role":"user","content":[]}}
+{"type":"message_start","message":{"role":"assistant","content":[]}}
+{"type":"message_update","assistantMessageEvent":{"type":"thinking_start","contentIndex":0}}
+{"type":"message_update","assistantMessageEvent":{"type":"thinking_end","contentIndex":0,"content":""}}
+{"type":"message_update","assistantMessageEvent":{"type":"text_start","contentIndex":1}}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":1,"delta":"DONE"}}
+{"type":"message_update","assistantMessageEvent":{"type":"text_end","contentIndex":1,"content":"DONE"}}
+{"type":"message_end","message":{"role":"assistant","content":[]}}
+{"type":"turn_end","message":{},"toolResults":[]}
+{"type":"agent_end","messages":[]}"#;
+
+        let mut parser = PiStreamJsonParser::new();
+        let mut extracted = Vec::new();
+        for line in sample.lines() {
+            if let Some(text) = parser.process_line(line) {
+                extracted.push(text);
+            }
+        }
+        assert_eq!(extracted, vec!["DONE".to_string()]);
+        assert_eq!(parser.text_accumulator, "DONE");
     }
 }

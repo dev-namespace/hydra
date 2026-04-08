@@ -8,8 +8,10 @@
 //!
 //! Milestone 1 of the pi-harness roadmap introduced the abstraction layer
 //! with ClaudeHarness as the only fully-implemented backend. Milestone 2
-//! implements the pi PTY code-path (`pi @<prompt-file>`). Headless mode
-//! and plan review for pi land in later milestones.
+//! implements the pi PTY code-path (`pi @<prompt-file>`). Milestone 3
+//! implements the pi headless code-path (`pi -p --mode json`) with a
+//! dedicated stream-json parser for pi's `text_delta` events. Plan review
+//! for pi lands in milestone 4.
 
 use crate::error::{HydraError, Result};
 use serde::{Deserialize, Serialize};
@@ -88,15 +90,13 @@ impl Harness {
                 "--verbose".to_string(),
             ],
             Harness::Pi => {
-                // Placeholder for milestone 3 — real pi headless invocation
-                // (`pi -p --mode json`) lands there.
-                vec![
-                    "-p".to_string(),
-                    "--dangerously-skip-permissions".to_string(),
-                    "--output-format".to_string(),
-                    "stream-json".to_string(),
-                    "--verbose".to_string(),
-                ]
+                // Pi's JSON event-stream mode. `-p` enables non-interactive
+                // print mode and `--mode json` selects newline-delimited
+                // JSON output. Pi reads its initial prompt from stdin when
+                // no positional prompt is provided, matching the pipe-based
+                // delivery hydra already uses for Claude. Pi manages its
+                // own tool permissions, so no skip-permissions flag.
+                vec!["-p".to_string(), "--mode".to_string(), "json".to_string()]
             }
         }
     }
@@ -294,6 +294,17 @@ mod tests {
         assert!(args.iter().any(|a| a == "-p"));
         assert!(args.iter().any(|a| a == "stream-json"));
         assert!(args.iter().any(|a| a == "--dangerously-skip-permissions"));
+    }
+
+    #[test]
+    fn test_pi_headless_args_use_mode_json() {
+        let args = Harness::Pi.headless_args();
+        assert!(args.iter().any(|a| a == "-p"));
+        assert!(args.iter().any(|a| a == "--mode"));
+        assert!(args.iter().any(|a| a == "json"));
+        // Pi manages its own permissions and has no stream-json Claude flag.
+        assert!(!args.iter().any(|a| a.contains("skip-permissions")));
+        assert!(!args.iter().any(|a| a == "stream-json"));
     }
 
     #[test]
