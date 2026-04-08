@@ -231,9 +231,11 @@ impl PtyManager {
         })?;
 
         // Build command to run Claude
+        // Prefix the prompt path with an instruction so Claude reads the file
+        // instead of treating the bare path as the literal prompt.
         let mut cmd = CommandBuilder::new("claude");
         cmd.arg("--dangerously-skip-permissions");
-        cmd.arg(prompt_path);
+        cmd.arg(format!("read instructions here: {}", prompt_path.display()));
 
         // Set working directory to current directory
         let cwd =

@@ -7,7 +7,7 @@ use crossterm::terminal::{self, disable_raw_mode, enable_raw_mode};
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use std::fs::{self, OpenOptions};
 use std::io::{self, BufRead, Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::Duration;
@@ -221,7 +221,7 @@ enum SkillPtyMessage {
 ///
 /// This spawns Claude via PTY, forwards keyboard input, and displays output
 /// until Claude exits.
-pub fn spawn_claude_interactive(prompt_path: &PathBuf, verbose: bool) -> Result<()> {
+pub fn spawn_claude_interactive(prompt_path: &Path, verbose: bool) -> Result<()> {
     // Get terminal size
     let (cols, rows) = terminal::size().unwrap_or((80, 24));
 
@@ -239,9 +239,11 @@ pub fn spawn_claude_interactive(prompt_path: &PathBuf, verbose: bool) -> Result<
         .map_err(|e| HydraError::io("creating PTY pair", io::Error::other(e.to_string())))?;
 
     // Build command to run Claude (interactive mode, no --print flag)
+    // Prefix the prompt path with an instruction so Claude reads the file
+    // instead of treating the bare path as the literal prompt.
     let mut cmd = CommandBuilder::new("claude");
     cmd.arg("--dangerously-skip-permissions");
-    cmd.arg(prompt_path);
+    cmd.arg(format!("read instructions here: {}", prompt_path.display()));
 
     // Set working directory to current directory
     let cwd =
