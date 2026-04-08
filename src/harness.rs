@@ -6,10 +6,10 @@
 //! encapsulated behind this abstraction so the rest of hydra can stay
 //! harness-agnostic.
 //!
-//! Milestone 1 of the pi-harness roadmap introduces the abstraction layer
-//! with ClaudeHarness as the only fully-implemented backend. The PiHarness
-//! variant is wired in but its code-paths intentionally mirror Claude for
-//! now — the pi-specific behavior lands in later milestones.
+//! Milestone 1 of the pi-harness roadmap introduced the abstraction layer
+//! with ClaudeHarness as the only fully-implemented backend. Milestone 2
+//! implements the pi PTY code-path (`pi @<prompt-file>`). Headless mode
+//! and plan review for pi land in later milestones.
 
 use crate::error::{HydraError, Result};
 use serde::{Deserialize, Serialize};
@@ -66,14 +66,12 @@ impl Harness {
                 format!("read instructions here: {}", prompt_path.display()),
             ],
             Harness::Pi => {
-                // Placeholder for milestone 2 — real pi PTY invocation
-                // (`pi @<prompt-file>`) lands there. Returning claude-shaped
-                // args keeps the abstraction self-consistent during
-                // milestone 1's pure refactor.
-                vec![
-                    "--dangerously-skip-permissions".to_string(),
-                    format!("read instructions here: {}", prompt_path.display()),
-                ]
+                // Pi accepts `@<file>` as a file argument whose contents
+                // become the initial message, auto-submitted before the
+                // interactive loop starts. Pi manages its own tool
+                // permissions, so no `--dangerously-skip-permissions`
+                // equivalent is needed.
+                vec![format!("@{}", prompt_path.display())]
             }
         }
     }
@@ -116,10 +114,10 @@ impl Harness {
                 "--dangerously-skip-permissions".to_string(),
                 format!("read instructions here: {}", prompt_path.display()),
             ],
-            Harness::Pi => vec![
-                "--dangerously-skip-permissions".to_string(),
-                format!("read instructions here: {}", prompt_path.display()),
-            ],
+            // Pi's interactive review is the same shape as its normal PTY
+            // invocation: `pi @<prompt-file>` loads the review prompt as
+            // the initial message and auto-submits it.
+            Harness::Pi => vec![format!("@{}", prompt_path.display())],
         }
     }
 
@@ -270,6 +268,24 @@ mod tests {
         let args = h.pty_args(Path::new("/tmp/prompt.md"));
         assert_eq!(args[0], "--dangerously-skip-permissions");
         assert!(args[1].contains("/tmp/prompt.md"));
+    }
+
+    #[test]
+    fn test_pi_command_and_pty_args() {
+        let h = Harness::Pi;
+        assert_eq!(h.command(), "pi");
+        let args = h.pty_args(Path::new("/tmp/prompt.md"));
+        // Pi takes a single @<file> argument; the file contents become
+        // the auto-submitted initial message.
+        assert_eq!(args, vec!["@/tmp/prompt.md".to_string()]);
+        // Pi manages its own permissions — no skip-permissions flag.
+        assert!(!args.iter().any(|a| a.contains("skip-permissions")));
+    }
+
+    #[test]
+    fn test_pi_review_pty_args_use_at_file() {
+        let args = Harness::Pi.review_pty_args(Path::new("/tmp/review.md"));
+        assert_eq!(args, vec!["@/tmp/review.md".to_string()]);
     }
 
     #[test]
