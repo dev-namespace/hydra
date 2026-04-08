@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::error::{HydraError, Result};
+use crate::harness::Harness;
 use crate::prompt::ResolvedPrompt;
 use crate::runner::{IterationResult, RunResult};
 use crate::signal;
@@ -143,7 +144,8 @@ impl StreamJsonParser {
     }
 }
 
-/// Headless runner that uses `claude -p` instead of PTY
+/// Headless runner that invokes a coding-agent harness in print/pipe mode
+/// instead of via a PTY.
 pub struct HeadlessRunner {
     config: Config,
     prompt: ResolvedPrompt,
@@ -151,6 +153,7 @@ pub struct HeadlessRunner {
     logger: Option<SessionLogger>,
     plan_name: Option<String>,
     scratchpad_path: Option<PathBuf>,
+    harness: Harness,
 }
 
 impl HeadlessRunner {
@@ -159,6 +162,7 @@ impl HeadlessRunner {
         prompt: ResolvedPrompt,
         plan_name: Option<String>,
         scratchpad_path: Option<PathBuf>,
+        harness: Harness,
     ) -> Self {
         let logger = match SessionLogger::new(plan_name.as_deref()) {
             Ok(l) => Some(l),
@@ -175,6 +179,7 @@ impl HeadlessRunner {
             logger,
             plan_name,
             scratchpad_path,
+            harness,
         }
     }
 
@@ -241,23 +246,21 @@ impl HeadlessRunner {
 
         let combined_prompt = self.create_combined_prompt();
 
-        // Spawn claude -p with stream-json output
-        // Clear CLAUDECODE env var to allow nested Claude sessions (headless mode
-        // is specifically designed to spawn claude -p as a subprocess)
-        let mut child = Command::new("claude")
-            .args([
-                "-p",
-                "--dangerously-skip-permissions",
-                "--output-format",
-                "stream-json",
-                "--verbose",
-            ])
-            .env_remove("CLAUDECODE")
+        // Spawn the configured harness in print/pipe mode with stream-json
+        // output. The Harness abstraction provides the command name, the
+        // argument list, and any env vars that must be cleared before
+        // spawning a nested session.
+        let mut cmd = Command::new(self.harness.command());
+        cmd.args(self.harness.headless_args());
+        for var in self.harness.env_removals() {
+            cmd.env_remove(var);
+        }
+        let mut child = cmd
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
-            .map_err(|e| HydraError::io("spawning claude -p", e))?;
+            .map_err(|e| HydraError::io(format!("spawning {} -p", self.harness.command()), e))?;
 
         // Track child PID for signal handling
         let child_id = child.id();

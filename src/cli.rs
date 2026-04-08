@@ -53,6 +53,11 @@ pub struct Cli {
     #[arg(long)]
     pub headless: bool,
 
+    /// Coding agent harness to use. Overrides the default from .hydra/harness.json
+    /// when provided. Valid values: `claude`, `pi`.
+    #[arg(long, value_name = "NAME")]
+    pub harness: Option<String>,
+
     /// Timeout per iteration in seconds (default: 3000 = 50 minutes)
     /// If Claude doesn't output a stop signal within this time, the iteration is terminated
     #[arg(short, long, default_value = "3000")]

@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::error::{HydraError, Result};
+use crate::harness::Harness;
 use crate::prompt::ResolvedPrompt;
 use crate::pty::{PtyManager, PtyResult};
 use chrono::Local;
@@ -143,7 +144,7 @@ impl SessionLogger {
     }
 }
 
-/// The runner that executes Claude in a loop
+/// The runner that executes a coding-agent harness in a loop
 pub struct Runner {
     config: Config,
     prompt: ResolvedPrompt,
@@ -151,6 +152,7 @@ pub struct Runner {
     logger: Option<SessionLogger>,
     plan_name: Option<String>,
     scratchpad_path: Option<PathBuf>,
+    harness: Harness,
 }
 
 impl Runner {
@@ -160,6 +162,7 @@ impl Runner {
         prompt: ResolvedPrompt,
         plan_name: Option<String>,
         scratchpad_path: Option<PathBuf>,
+        harness: Harness,
     ) -> Self {
         // Try to create the session logger, but don't fail if it doesn't work
         let logger = match SessionLogger::new(plan_name.as_deref()) {
@@ -177,6 +180,7 @@ impl Runner {
             logger,
             plan_name,
             scratchpad_path,
+            harness,
         }
     }
 
@@ -261,9 +265,9 @@ impl Runner {
         let output_file =
             NamedTempFile::new().map_err(|e| HydraError::io("creating output file", e))?;
 
-        // Create PTY manager and spawn Claude
+        // Create PTY manager and spawn the configured harness
         let mut pty = PtyManager::new(Arc::clone(&self.should_stop))?;
-        pty.spawn_claude(prompt_file.path())?;
+        pty.spawn_harness(self.harness, prompt_file.path())?;
 
         // Run the I/O loop (handles stdin, stdout, and signal detection)
         let output_path = output_file.path().to_path_buf();
@@ -446,7 +450,7 @@ mod tests {
     fn test_runner_creation() {
         let config = test_config();
         let prompt = test_prompt();
-        let runner = Runner::new(config, prompt, None, None);
+        let runner = Runner::new(config, prompt, None, None, Harness::Claude);
 
         assert!(!runner.should_stop.load(Ordering::SeqCst));
     }
@@ -455,7 +459,7 @@ mod tests {
     fn test_stop_flag() {
         let config = test_config();
         let prompt = test_prompt();
-        let runner = Runner::new(config, prompt, None, None);
+        let runner = Runner::new(config, prompt, None, None, Harness::Claude);
 
         let flag = runner.stop_flag();
         assert!(!flag.load(Ordering::SeqCst));

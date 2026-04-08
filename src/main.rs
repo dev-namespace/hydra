@@ -1,6 +1,7 @@
 mod cli;
 mod config;
 mod error;
+mod harness;
 mod headless;
 mod prompt;
 mod pty;
@@ -13,6 +14,7 @@ use clap::Parser;
 use cli::Cli;
 use config::Config;
 use error::{EXIT_SUCCESS, HydraError, Result};
+use harness::{Harness, HarnessConfig};
 use headless::HeadlessRunner;
 use prompt::{inject_plan_path, inject_scratchpad_path, resolve_prompt};
 use runner::{RunResult, Runner};
@@ -81,6 +83,13 @@ fn run(cli: Cli) -> Result<()> {
 
     if config.verbose {
         eprintln!("Config loaded: {:?}", config);
+    }
+
+    // Resolve which coding-agent harness to drive. CLI flag wins over
+    // the project-level .hydra/harness.json; both fall back to claude.
+    let harness = HarnessConfig::resolve(cli.harness.as_deref())?;
+    if config.verbose {
+        eprintln!("Harness resolved: {}", harness);
     }
 
     // Route to appropriate command handler
@@ -211,6 +220,7 @@ fn run(cli: Cli) -> Result<()> {
             println!("  verbose: {}", config.verbose);
             println!("  stop_file: {}", config.stop_file);
             println!("  headless: {}", cli.headless);
+            println!("  harness: {}", harness);
             println!("  prompt_source: {}", resolved.source);
             println!("  prompt_path: {}", resolved.path.display());
             if let Some(ref plan_path) = cli.plan {
@@ -235,9 +245,14 @@ fn run(cli: Cli) -> Result<()> {
             });
 
             let result = if cli.headless {
-                // Headless mode: use claude -p pipe mode
-                let mut runner =
-                    HeadlessRunner::new(config.clone(), resolved, plan_name, scratchpad_path);
+                // Headless mode: use harness print/pipe mode
+                let mut runner = HeadlessRunner::new(
+                    config.clone(),
+                    resolved,
+                    plan_name,
+                    scratchpad_path,
+                    harness,
+                );
 
                 let stop_flag = runner.stop_flag();
                 if let Err(e) = signal::install_handlers(stop_flag) {
@@ -265,7 +280,13 @@ fn run(cli: Cli) -> Result<()> {
                 println!("─────────────────────────────────────────");
                 println!();
 
-                let mut runner = Runner::new(config.clone(), resolved, plan_name, scratchpad_path);
+                let mut runner = Runner::new(
+                    config.clone(),
+                    resolved,
+                    plan_name,
+                    scratchpad_path,
+                    harness,
+                );
 
                 let stop_flag = runner.stop_flag();
                 if let Err(e) = signal::install_handlers(stop_flag) {
@@ -294,8 +315,9 @@ fn run(cli: Cli) -> Result<()> {
                         e
                     );
                 } else if cli.headless {
-                    // Headless mode: run review via claude -p, save to .hydra/reviews/
-                    if let Err(e) = run_headless_review(&review_file, plan_path) {
+                    // Headless mode: run review via the harness in print
+                    // mode, save to .hydra/reviews/
+                    if let Err(e) = run_headless_review(&review_file, plan_path, harness) {
                         eprintln!("[hydra] Warning: Plan review failed: {}", e);
                     }
                     let _ = fs::remove_file(&review_file);
@@ -416,6 +438,15 @@ fn create_hydra_directory(verbose: bool) -> Result<()> {
         println!("Created {} (from template)", prompt_path.display());
     } else if verbose {
         println!("{} already exists", prompt_path.display());
+    }
+
+    // Create harness.json with the default harness if it doesn't exist
+    let harness_path = HarnessConfig::local_path();
+    if !harness_path.exists() {
+        HarnessConfig::write_default(&harness_path)?;
+        println!("Created {} (default: claude)", harness_path.display());
+    } else if verbose {
+        println!("{} already exists", harness_path.display());
     }
 
     // Update .gitignore
@@ -599,22 +630,25 @@ fn update_gitignore(verbose: bool) -> Result<()> {
     Ok(())
 }
 
-/// Run plan review in headless mode via `claude -p`.
+/// Run plan review in headless mode via the selected harness.
 ///
-/// Pipes the review prompt to `claude -p` and saves the output to
+/// Pipes the review prompt to `<harness> -p` and saves the output to
 /// `.hydra/reviews/<plan-name>.md` for the user to read later.
-fn run_headless_review(prompt_path: &Path, plan_path: &Path) -> Result<()> {
+fn run_headless_review(prompt_path: &Path, plan_path: &Path, harness: Harness) -> Result<()> {
     let prompt_content = fs::read_to_string(prompt_path)
         .map_err(|e| HydraError::io("reading review prompt file", e))?;
 
-    let mut child = std::process::Command::new("claude")
-        .args(["-p", "--dangerously-skip-permissions"])
-        .env_remove("CLAUDECODE")
+    let mut cmd = std::process::Command::new(harness.command());
+    cmd.args(harness.review_headless_args());
+    for var in harness.env_removals() {
+        cmd.env_remove(var);
+    }
+    let mut child = cmd
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .map_err(|e| HydraError::io("spawning claude -p for review", e))?;
+        .map_err(|e| HydraError::io(format!("spawning {} -p for review", harness.command()), e))?;
 
     // Write prompt to stdin
     if let Some(mut stdin) = child.stdin.take() {

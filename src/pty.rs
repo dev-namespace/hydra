@@ -1,4 +1,5 @@
 use crate::error::{HydraError, Result};
+use crate::harness::Harness;
 use crate::signal::{clear_child_pid, set_child_pid};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::terminal::{self, disable_raw_mode, enable_raw_mode};
@@ -224,18 +225,26 @@ impl PtyManager {
         Ok(())
     }
 
-    /// Spawn Claude in the PTY
-    pub fn spawn_claude(&mut self, prompt_path: &Path) -> Result<()> {
+    /// Spawn the selected coding agent harness in the PTY.
+    ///
+    /// The command and arguments are provided by the [`Harness`] abstraction
+    /// so hydra supports multiple agents (Claude, Pi, ...) from the same
+    /// PTY plumbing.
+    pub fn spawn_harness(&mut self, harness: Harness, prompt_path: &Path) -> Result<()> {
         let pty_pair = self.pty_pair.as_ref().ok_or_else(|| {
             HydraError::io("PTY already consumed", io::Error::other("PTY pair is None"))
         })?;
 
-        // Build command to run Claude
-        // Prefix the prompt path with an instruction so Claude reads the file
-        // instead of treating the bare path as the literal prompt.
-        let mut cmd = CommandBuilder::new("claude");
-        cmd.arg("--dangerously-skip-permissions");
-        cmd.arg(format!("read instructions here: {}", prompt_path.display()));
+        // Build command to run the chosen harness. The Harness abstraction
+        // supplies the binary name and the args needed to feed it the
+        // iteration prompt file.
+        let mut cmd = CommandBuilder::new(harness.command());
+        for arg in harness.pty_args(prompt_path) {
+            cmd.arg(arg);
+        }
+        for var in harness.env_removals() {
+            cmd.env_remove(var);
+        }
 
         // Set working directory to current directory
         let cwd =
@@ -244,7 +253,10 @@ impl PtyManager {
 
         // Spawn the command in the PTY
         let child = pty_pair.slave.spawn_command(cmd).map_err(|e| {
-            HydraError::io("spawning claude in PTY", io::Error::other(e.to_string()))
+            HydraError::io(
+                format!("spawning {} in PTY", harness.command()),
+                io::Error::other(e.to_string()),
+            )
         })?;
 
         // Get the process ID
@@ -257,6 +269,12 @@ impl PtyManager {
         self.child = Some(child);
 
         Ok(())
+    }
+
+    /// Backwards-compatible shim that spawns Claude specifically. Prefer
+    /// [`PtyManager::spawn_harness`] in new code.
+    pub fn spawn_claude(&mut self, prompt_path: &Path) -> Result<()> {
+        self.spawn_harness(Harness::Claude, prompt_path)
     }
 
     /// Run the I/O loop, handling input/output and watching for signals
