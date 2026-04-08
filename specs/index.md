@@ -28,6 +28,14 @@ Parallel plan execution, parallel tasks, folder of plans, wave-based execution, 
 
 ---
 
+## [Pi Harness](./pi-harness.md)
+
+Multi-harness support, pi coding agent, --harness flag, harness.json, pi CLI, PiHarness, ClaudeHarness, harness trait, text_delta, stream JSON parser, pi -p, pi @file, alternative agent, pluggable harness, coding agent abstraction.
+
+**Source**: `src/cli.rs`, `src/config.rs`, `src/pty.rs`, `src/headless.rs`, `src/runner.rs`, `src/main.rs`
+
+---
+
 ## [Headless Mode](./headless-mode.md)
 
 Non-interactive execution, claude -p, pipe mode, --headless flag, stdin prompt, stream-json parsing, text_delta, automation, CI/CD, batch processing, no PTY, no terminal, no TUI, parallel integration, --dangerously-skip-permissions, clean context per iteration.
