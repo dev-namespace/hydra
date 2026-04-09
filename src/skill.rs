@@ -2,6 +2,7 @@
 
 use crate::config::Config;
 use crate::error::{HydraError, Result};
+use crate::harness::Harness;
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use crossterm::terminal::{self, disable_raw_mode, enable_raw_mode};
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
@@ -201,8 +202,9 @@ pub fn create_skill_with_claude(skill_type: SkillType, verbose: bool) -> Result<
     }
     println!();
 
-    // Spawn Claude in interactive mode via PTY
-    let result = spawn_claude_interactive(&prompt_file, verbose);
+    // Spawn Claude in interactive mode via PTY. Skill creation always uses
+    // the Claude harness — the skill templates are Claude-specific.
+    let result = spawn_claude_interactive(&prompt_file, verbose, Harness::Claude);
 
     // Clean up the temporary prompt file
     let _ = fs::remove_file(&prompt_file);
@@ -217,11 +219,13 @@ enum SkillPtyMessage {
     Error,
 }
 
-/// Spawn Claude in interactive (headful) mode and wait for it to complete.
+/// Spawn the configured harness in interactive (headful) mode and wait for
+/// it to complete.
 ///
-/// This spawns Claude via PTY, forwards keyboard input, and displays output
-/// until Claude exits.
-pub fn spawn_claude_interactive(prompt_path: &Path, verbose: bool) -> Result<()> {
+/// This spawns the harness (Claude or Pi) via PTY, forwards keyboard input,
+/// and displays output until the harness exits. Used for skill creation
+/// (always Claude) and for plan review (harness selected by the caller).
+pub fn spawn_claude_interactive(prompt_path: &Path, verbose: bool, harness: Harness) -> Result<()> {
     // Get terminal size
     let (cols, rows) = terminal::size().unwrap_or((80, 24));
 
@@ -238,12 +242,20 @@ pub fn spawn_claude_interactive(prompt_path: &Path, verbose: bool) -> Result<()>
         })
         .map_err(|e| HydraError::io("creating PTY pair", io::Error::other(e.to_string())))?;
 
-    // Build command to run Claude (interactive mode, no --print flag)
-    // Prefix the prompt path with an instruction so Claude reads the file
-    // instead of treating the bare path as the literal prompt.
-    let mut cmd = CommandBuilder::new("claude");
-    cmd.arg("--dangerously-skip-permissions");
-    cmd.arg(format!("read instructions here: {}", prompt_path.display()));
+    // Build command to run the harness in interactive mode via the harness
+    // abstraction. The harness decides how to deliver the prompt file
+    // (Claude: `--dangerously-skip-permissions "read instructions here: <f>"`,
+    // Pi: `@<f>`).
+    let mut cmd = CommandBuilder::new(harness.command());
+    for arg in harness.review_pty_args(prompt_path) {
+        cmd.arg(arg);
+    }
+
+    // Strip any env vars the harness needs cleared before spawning (e.g.
+    // CLAUDECODE for nested Claude sessions).
+    for var in harness.env_removals() {
+        cmd.env_remove(var);
+    }
 
     // Set working directory to current directory
     let cwd =
@@ -251,10 +263,12 @@ pub fn spawn_claude_interactive(prompt_path: &Path, verbose: bool) -> Result<()>
     cmd.cwd(cwd);
 
     // Spawn the command in the PTY
-    let mut child = pty_pair
-        .slave
-        .spawn_command(cmd)
-        .map_err(|e| HydraError::io("spawning claude in PTY", io::Error::other(e.to_string())))?;
+    let mut child = pty_pair.slave.spawn_command(cmd).map_err(|e| {
+        HydraError::io(
+            format!("spawning {} in PTY", harness.command()),
+            io::Error::other(e.to_string()),
+        )
+    })?;
 
     // Get PTY reader and writer
     let pty_reader = pty_pair

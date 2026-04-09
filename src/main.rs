@@ -322,7 +322,12 @@ fn run(cli: Cli) -> Result<()> {
                     }
                     let _ = fs::remove_file(&review_file);
                 } else {
-                    if let Err(e) = spawn_claude_interactive(&review_file, config.verbose) {
+                    // Interactive plan review runs through the active
+                    // harness (claude or pi). Pi accepts the review prompt
+                    // via `@<file>`; claude via the usual skip-permissions
+                    // + "read instructions here" wrapper.
+                    if let Err(e) = spawn_claude_interactive(&review_file, config.verbose, harness)
+                    {
                         eprintln!("[hydra] Warning: Plan review failed: {}", e);
                     }
                     let _ = fs::remove_file(&review_file);

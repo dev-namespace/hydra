@@ -103,11 +103,9 @@ impl Harness {
 
     /// Arguments to pass when spawning the harness for an interactive plan
     /// review (PTY, same shape as `pty_args` but without iteration
-    /// instructions wrapping).
-    ///
-    /// Reserved for milestone 4 (plan review + parallel passthrough) which
-    /// wires the interactive review path through the harness abstraction.
-    #[allow(dead_code)]
+    /// instructions wrapping). Used by `spawn_claude_interactive` in the
+    /// review path so interactive review follows the configured harness
+    /// (claude or pi).
     pub fn review_pty_args(self, prompt_path: &Path) -> Vec<String> {
         match self {
             Harness::Claude => vec![
