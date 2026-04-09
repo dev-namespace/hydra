@@ -469,9 +469,34 @@ mod tests {
     }
 
     #[test]
-    fn test_iteration_instructions_contains_signals() {
-        assert!(ITERATION_INSTRUCTIONS.contains("###TASK_COMPLETE###"));
-        assert!(ITERATION_INSTRUCTIONS.contains("###ALL_TASKS_COMPLETE###"));
+    fn test_iteration_instructions_does_not_contain_literal_signals() {
+        // The template must describe the stop sequences indirectly so that
+        // harnesses which echo the prompt back through their TUI (e.g. pi)
+        // do not trip hydra's PTY signal scanner with a false positive.
+        // See specs/pi-harness.md for the bug history.
+        assert!(
+            !ITERATION_INSTRUCTIONS.contains("###TASK_COMPLETE###"),
+            "iteration-instructions.md must NOT contain the literal task-complete signal"
+        );
+        assert!(
+            !ITERATION_INSTRUCTIONS.contains("###ALL_TASKS_COMPLETE###"),
+            "iteration-instructions.md must NOT contain the literal all-complete signal"
+        );
+        // Sanity check that the template still describes the stop sequences
+        // (without the literal joined form) so the agent knows what to emit.
+        // The descriptive form splits the keywords across words: "TASK then
+        // underscore then COMPLETE", etc.
+        assert!(
+            ITERATION_INSTRUCTIONS.contains("TASK")
+                && ITERATION_INSTRUCTIONS.contains("COMPLETE")
+                && ITERATION_INSTRUCTIONS.contains("ALL")
+                && ITERATION_INSTRUCTIONS.contains("TASKS"),
+            "iteration-instructions.md must still describe the stop sequences"
+        );
+        assert!(
+            ITERATION_INSTRUCTIONS.contains("hash"),
+            "iteration-instructions.md must describe the hash wrapping"
+        );
     }
 
     #[test]
