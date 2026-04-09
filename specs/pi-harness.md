@@ -89,7 +89,7 @@ High-level milestones for `/auto-sprint` execution. Each milestone is a self-con
 
 - [x] **Milestone 4: Plan review + parallel passthrough** — Wire the harness through plan review in `main.rs` (both interactive and headless review paths). Update the `/hydra` parallel skills (`~/.claude/skills/hydra-parallel-plans/SKILL.md` and `~/.claude/skills/hydra-parallel-tasks/SKILL.md`) to pass `--harness` through to hydra subcommands. Update dry-run output to show the active harness.
 
-- [ ] **Milestone 5: Spec + test + docs update** — Update `specs/hydra.md` and `specs/headless-mode.md` to document the `--harness` flag. Add unit tests for `PiStreamJsonParser` (same pattern as existing `StreamJsonParser` tests in `headless.rs`). Add integration test or manual verification for both harnesses in both modes. Update `specs/index.md`.
+- [x] **Milestone 5: Spec + test + docs update** — Update `specs/hydra.md` and `specs/headless-mode.md` to document the `--harness` flag. Add unit tests for `PiStreamJsonParser` (same pattern as existing `StreamJsonParser` tests in `headless.rs`). Add integration test or manual verification for both harnesses in both modes. Update `specs/index.md`.
 
 ## Related specs
 
