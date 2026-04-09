@@ -1,12 +1,13 @@
 # Headless Mode
 
-Non-interactive execution mode using `claude -p` instead of PTY. Designed for automation, CI/CD, and parallel execution.
+Non-interactive execution mode using the coding-agent harness in print/pipe mode (`claude -p` or `pi -p --mode json`) instead of a PTY. Designed for automation, CI/CD, and parallel execution.
 
 ## User Capabilities
 
 ### Running Headless
 - Users can run `hydra <plan> --headless` to execute without a terminal
 - Users can combine with other flags: `hydra <plan> --headless --no-review --max 10`
+- Users can pick the harness with `--harness pi` or `--harness claude`; headless mode works with either
 - Users can use headless mode in CI/CD pipelines, scripts, and automated workflows
 - Users can use headless mode standalone or let the parallel skill use it internally
 
@@ -17,10 +18,10 @@ Non-interactive execution mode using `claude -p` instead of PTY. Designed for au
 - Stream-json from Claude is parsed internally — never exposed to stdout
 
 ### Iteration Model
-- Each iteration is a fresh `claude -p` invocation (clean context, no `--continue`)
-- Prompt is piped via stdin: `echo "$prompt" | claude -p --dangerously-skip-permissions --output-format stream-json`
-- Claude runs to natural completion (no mid-stream killing needed)
-- Hydra parses stream-json text deltas for stop signals
+- Each iteration is a fresh harness invocation in print/pipe mode (clean context, no `--continue`)
+- Prompt is piped via stdin (e.g. `echo "$prompt" | claude -p ...` or `echo "$prompt" | pi -p --mode json`)
+- The harness runs to natural completion (no mid-stream killing needed)
+- Hydra parses the harness-specific stream-json for text content and stop signals
 - Next iteration starts fresh if TASK_COMPLETE detected
 - Loop ends on ALL_TASKS_COMPLETE, max iterations, or stop signal
 
@@ -29,27 +30,37 @@ Non-interactive execution mode using `claude -p` instead of PTY. Designed for au
 ### CLI Flag
 - `--headless` (long only, no short form)
 - No effect on `init`, `tui`, or `--install` commands
-- Compatible with all existing flags: `--max`, `--timeout`, `--verbose`, `--no-review`, `--prompt`, `--reset-plan`, `--dry-run`
+- Compatible with all existing flags: `--max`, `--timeout`, `--verbose`, `--no-review`, `--prompt`, `--reset-plan`, `--dry-run`, `--harness`
 - Default: false (PTY mode remains the default)
 
-### Claude Invocation
-- Command: `claude -p --dangerously-skip-permissions --output-format stream-json --verbose`
+### Harness Selection
+- The `--harness <name>` flag (or `.hydra/harness.json`) selects which coding agent to spawn in headless mode
+- `--harness claude` uses `claude -p --dangerously-skip-permissions --output-format stream-json --verbose`
+- `--harness pi` uses `pi -p --mode json`
+- Pi manages its own tool permissions, so there is no skip-permissions flag for pi
+- Each harness ships its own stream-json parser; hydra picks the right one at runtime
+- See [Pi Harness](./pi-harness.md) for the full equivalence table and pi's JSON event format
+
+### Harness Invocation
+- Claude command: `claude -p --dangerously-skip-permissions --output-format stream-json --verbose`
+- Pi command: `pi -p --mode json`
 - Prompt delivery: piped via stdin (avoids shell argument length limits)
 - Each iteration is a separate process (no `--continue`, clean context per task)
 - Working directory: inherited from hydra's cwd
+- Env var cleanup is harness-specific (claude removes `CLAUDECODE`, pi removes nothing)
 
 ### Stream-JSON Parsing
-- Hydra reads newline-delimited JSON from Claude's stdout
-- Filters for `assistant` messages (`{"type":"assistant","message":{"content":[...]}}`)
-- Extracts text from content blocks (`{"text":"..."}`) and appends to a text accumulator
-- Ignores tool_use content blocks, system events, user messages, and result events
-- Scans accumulator for `###TASK_COMPLETE###` and `###ALL_TASKS_COMPLETE###`
+- Hydra reads newline-delimited JSON from the harness's stdout
+- Claude parser: filters for `assistant` messages (`{"type":"assistant","message":{"content":[...]}}`), extracts text from `{"text":"..."}` content blocks, ignores tool_use blocks, system events, user messages, and result events
+- Pi parser: filters for `message_update` events whose `assistantMessageEvent.type` is `text_delta`, extracts the `delta` string, ignores thinking, toolcall, session, and lifecycle events
+- Both parsers append text to a per-iteration accumulator
+- Both parsers scan the accumulator for `###TASK_COMPLETE###` and `###ALL_TASKS_COMPLETE###` (shared helper — `ALL_TASKS_COMPLETE` takes priority)
 - Text content is simultaneously written to the session log file
 - No ANSI stripping needed (stream-json text content is plain text)
 
 ### Timeout Handling
 - Same `--timeout` flag applies (default: 3000s)
-- If Claude's process exceeds timeout, hydra sends SIGTERM then SIGKILL
+- If the harness process exceeds the timeout, hydra sends SIGTERM then SIGKILL
 - Timeout triggers next iteration (same behavior as PTY mode)
 
 ### Signal Handling
@@ -66,7 +77,7 @@ Non-interactive execution mode using `claude -p` instead of PTY. Designed for au
 
 ### Plan Review in Headless Mode
 - When all tasks complete and `--no-review` is not set, plan review runs non-interactively
-- Review uses `claude -p --dangerously-skip-permissions` with the review prompt piped via stdin
+- Review uses the same harness that ran the iterations, in print mode, with the review prompt piped via stdin (`claude -p` or `pi -p`)
 - Review output is saved to `.hydra/reviews/<plan-name>.md` for the user to read later
 - This allows parallel subagents to get automatic quality reviews without blocking
 
@@ -85,12 +96,13 @@ Non-interactive execution mode using `claude -p` instead of PTY. Designed for au
 ## Related specs
 
 - [Hydra](./hydra.md) - core task runner, iteration loop, stop signals
+- [Pi Harness](./pi-harness.md) - multi-harness support and pi's JSON event format
 - [Parallel Execution](./parallel-execution.md) - parallel skill that uses headless internally
 
 ## Source
 
-- [src/cli.rs](../src/cli.rs) - `--headless` flag definition
-- `src/headless.rs` - headless execution module (to be created)
+- [src/cli.rs](../src/cli.rs) - `--headless` and `--harness` flag definitions
+- [src/headless.rs](../src/headless.rs) - headless execution module with per-harness stream-json parsers
+- [src/harness.rs](../src/harness.rs) - harness abstraction (claude / pi command + args + env)
 - [src/runner.rs](../src/runner.rs) - shared iteration logic
-- [src/main.rs](../src/main.rs) - routing to headless vs PTY mode
-- `~/.claude/skills/hydra/SKILL.md` - parallel skill (update to use `--headless`)
+- [src/main.rs](../src/main.rs) - routing to headless vs PTY mode and plan-review dispatch

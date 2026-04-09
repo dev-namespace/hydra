@@ -1,6 +1,6 @@
 # Hydra
 
-Automated Claude Code task runner. Executes tasks from implementation plans in a loop until all tasks are complete.
+Automated coding-agent task runner. Executes tasks from implementation plans in a loop until all tasks are complete. Supports multiple coding-agent harnesses (Claude Code by default, Pi optional).
 
 ## User Capabilities
 
@@ -9,10 +9,11 @@ Automated Claude Code task runner. Executes tasks from implementation plans in a
 - Users can run `hydra <plan>` to run with an implementation plan injected
 - Users can specify maximum iterations with `--max N`
 - Users can specify iteration timeout with `--timeout N` (seconds, default: 3000 = 50 minutes)
-- Users can preview configuration with `--dry-run` without executing
+- Users can preview configuration with `--dry-run` without executing (dry-run output shows the resolved harness)
 - Users can enable debug output with `--verbose`
 - Users can override the prompt file with `--prompt <path>`
 - Users can reset a plan's checkboxes and clear its scratchpad with `--reset-plan`
+- Users can select a coding-agent harness with `--harness <name>` (`claude` or `pi`)
 
 ### Implementation Plan
 - Users can provide an optional first positional argument as a path to an implementation plan
@@ -68,6 +69,7 @@ hydra --install             # Install to ~/.local/bin
 - `--max <N>`, `-m`: Maximum iterations (default: 20)
 - `--timeout <N>`, `-t`: Iteration timeout in seconds (default: 3000 = 50 minutes)
 - `--reset-plan`: Uncheck all plan checkboxes (`- [x]` → `- [ ]`) and reset scratchpad to initial header. Requires a plan file argument.
+- `--harness <name>`: Coding-agent harness to drive. Valid values: `claude`, `pi`. Overrides `.hydra/harness.json`. Default: `claude`.
 - `--dry-run`: Preview configuration without executing
 - `--verbose`, `-v`: Enable debug output
 
@@ -76,6 +78,14 @@ hydra --install             # Install to ~/.local/bin
 2. `./.hydra/prompt.md` (project-specific)
 3. `./prompt.md` (current directory)
 4. `~/.hydra/default-prompt.md` (global fallback, lowest)
+
+### Harness Resolution Priority
+The coding-agent harness (the CLI hydra spawns each iteration) is resolved from:
+1. `--harness <name>` (CLI override, highest)
+2. `./.hydra/harness.json` (project-level config, created by `hydra init`)
+3. Built-in default: `claude`
+
+Valid values: `claude`, `pi`. Unknown names produce a helpful error. The missing-file case is silent — hydra falls back to `claude` when `.hydra/harness.json` doesn't exist so older projects keep working without a migration step. TUI mode (`hydra tui`) always uses Claude regardless of this setting. See [Pi Harness](./pi-harness.md) for the full equivalence table and streaming format details.
 
 ### Plan Injection
 When a plan file is provided as the first positional argument:
@@ -117,6 +127,7 @@ The implementation plan is located at: [plan file path]
 ├── logs/                    # Session logs
 ├── reviews/                 # Headless plan review outputs
 ├── scratchpad/              # Cross-iteration notes (auto-created with plan)
+├── harness.json             # Default harness selection ({"harness": "claude"})
 └── prompt.md                # Project-specific prompt (optional)
 ```
 
@@ -169,7 +180,9 @@ stop_file = ".hydra-stop"
 
 ## Related specs
 
-None yet.
+- [Pi Harness](./pi-harness.md) - multi-harness support, `--harness` flag, pi coding agent
+- [Headless Mode](./headless-mode.md) - non-interactive execution, stream-json parsing
+- [Parallel Execution](./parallel-execution.md) - parallel skills that pass flags through
 
 ### Interactive Mode
 - Users can type while Claude is running (input forwarded to PTY)
@@ -180,7 +193,9 @@ None yet.
 
 - [src/main.rs](../src/main.rs) - Entry point and CLI setup
 - [src/runner.rs](../src/runner.rs) - Main iteration loop
-- [src/pty.rs](../src/pty.rs) - PTY manager for Claude execution
+- [src/pty.rs](../src/pty.rs) - PTY manager for harness execution
+- [src/headless.rs](../src/headless.rs) - Headless (print-mode) runner
+- [src/harness.rs](../src/harness.rs) - Harness abstraction (claude / pi)
 - [src/signal.rs](../src/signal.rs) - Signal handling and child process management
 - [src/config.rs](../src/config.rs) - Configuration loading
 - [src/prompt.rs](../src/prompt.rs) - Prompt resolution

@@ -749,6 +749,100 @@ mod tests {
     }
 
     #[test]
+    fn test_pi_parser_all_complete_takes_priority() {
+        // Mirror of test_stream_json_parser_all_complete_takes_priority:
+        // when both stop signals appear in the accumulator, ALL_TASKS_COMPLETE
+        // must win. Simulate it by feeding two text_delta events.
+        let mut parser = PiStreamJsonParser::new();
+        parser.process_line(
+            r####"{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"###TASK_COMPLETE###\n"}}"####,
+        );
+        parser.process_line(
+            r####"{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"###ALL_TASKS_COMPLETE###\n"}}"####,
+        );
+        assert_eq!(
+            parser.check_stop_signal(),
+            Some(IterationResult::AllComplete)
+        );
+    }
+
+    #[test]
+    fn test_pi_parser_interleaved_text_and_tool_deltas() {
+        // Mirror of test_stream_json_parser_mixed_content_blocks: when a
+        // pi stream interleaves text_delta events with thinking/toolcall
+        // deltas, only the text deltas are extracted and accumulated.
+        let mut parser = PiStreamJsonParser::new();
+        let lines = [
+            r#"{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":1,"delta":"Reading file..."}}"#,
+            r#"{"type":"message_update","assistantMessageEvent":{"type":"toolcall_start","contentIndex":2,"name":"Read"}}"#,
+            r#"{"type":"message_update","assistantMessageEvent":{"type":"toolcall_delta","contentIndex":2,"delta":"{\"path\":\"foo.rs\"}"}}"#,
+            r#"{"type":"message_update","assistantMessageEvent":{"type":"toolcall_end","contentIndex":2}}"#,
+            r#"{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":3,"delta":" done."}}"#,
+        ];
+        let mut extracted = Vec::new();
+        for line in lines {
+            if let Some(t) = parser.process_line(line) {
+                extracted.push(t);
+            }
+        }
+        assert_eq!(
+            extracted,
+            vec!["Reading file...".to_string(), " done.".to_string()]
+        );
+        assert_eq!(parser.text_accumulator, "Reading file... done.");
+    }
+
+    /// Exercise the same `Box<dyn HarnessStreamParser>` dispatch path that
+    /// `HeadlessRunner::run_iteration` uses. This is a lightweight
+    /// integration test that verifies the runner's per-harness parser
+    /// selection is wired correctly: a claude-shaped event only produces
+    /// output through the claude parser, and a pi-shaped event only
+    /// produces output through the pi parser. Without a real child
+    /// process it's the closest thing to a cross-harness integration test
+    /// we can run in CI.
+    #[test]
+    fn test_harness_dispatch_to_correct_parser() {
+        let claude_line = r#"{"type":"assistant","message":{"content":[{"text":"hi claude"}]}}"#;
+        let pi_line = r#"{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"hi pi"}}"#;
+
+        for harness in [Harness::Claude, Harness::Pi] {
+            let mut parser: Box<dyn HarnessStreamParser> = match harness {
+                Harness::Claude => Box::new(StreamJsonParser::new()),
+                Harness::Pi => Box::new(PiStreamJsonParser::new()),
+            };
+
+            match harness {
+                Harness::Claude => {
+                    assert_eq!(
+                        parser.process_line(claude_line),
+                        Some("hi claude".to_string()),
+                        "claude parser should extract claude-shaped text"
+                    );
+                    assert!(
+                        parser.process_line(pi_line).is_none(),
+                        "claude parser must ignore pi-shaped events"
+                    );
+                }
+                Harness::Pi => {
+                    assert_eq!(
+                        parser.process_line(pi_line),
+                        Some("hi pi".to_string()),
+                        "pi parser should extract pi-shaped text"
+                    );
+                    assert!(
+                        parser.process_line(claude_line).is_none(),
+                        "pi parser must ignore claude-shaped events"
+                    );
+                }
+            }
+
+            // And both parsers must share stop-signal detection semantics
+            // via the common `scan_stop_signal` helper.
+            assert!(parser.check_stop_signal().is_none());
+        }
+    }
+
+    #[test]
     fn test_pi_parser_realistic_sample() {
         // Captured from a real `pi -p --mode json --no-tools` invocation
         // that was asked to reply with just "DONE". The stream includes

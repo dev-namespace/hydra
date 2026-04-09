@@ -6,9 +6,9 @@ Quick reference to all system specs. Search-optimized with keywords.
 
 ## [Hydra](./hydra.md)
 
-Automated Claude Code task runner, iteration loop, task automation, prompt resolution, implementation plan, plan injection, positional arguments, stop signals, TASK_COMPLETE, ALL_TASKS_COMPLETE, PTY streaming, signal handling, SIGINT, SIGTERM, dry-run, verbose, max iterations, session logging, .hydra directory, config.toml, default-prompt.md, portable-pty, crossterm, raw mode, terminal input, keyboard handling, interactive mode, process group, child process.
+Automated coding-agent task runner, iteration loop, task automation, prompt resolution, implementation plan, plan injection, positional arguments, stop signals, TASK_COMPLETE, ALL_TASKS_COMPLETE, PTY streaming, signal handling, SIGINT, SIGTERM, dry-run, verbose, max iterations, session logging, .hydra directory, config.toml, default-prompt.md, harness.json, harness resolution, --harness flag, claude, pi, portable-pty, crossterm, raw mode, terminal input, keyboard handling, interactive mode, process group, child process.
 
-**Source**: `src/` (Rust: main.rs, runner.rs, pty.rs, signal.rs, config.rs, prompt.rs)
+**Source**: `src/` (Rust: main.rs, runner.rs, pty.rs, headless.rs, harness.rs, signal.rs, config.rs, prompt.rs)
 
 ---
 
@@ -30,17 +30,17 @@ Parallel plan execution, parallel tasks, folder of plans, wave-based execution, 
 
 ## [Pi Harness](./pi-harness.md)
 
-Multi-harness support, pi coding agent, --harness flag, harness.json, pi CLI, PiHarness, ClaudeHarness, harness trait, text_delta, stream JSON parser, pi -p, pi @file, alternative agent, pluggable harness, coding agent abstraction.
+Multi-harness support, pi coding agent, --harness flag, harness.json, pi CLI, PiHarness, ClaudeHarness, harness trait, harness enum, harness resolution, cli override, text_delta, message_update, assistantMessageEvent, stream JSON parser, PiStreamJsonParser, pi -p, pi @file, pi --mode json, alternative agent, pluggable harness, coding agent abstraction, plan review passthrough, parallel skill passthrough.
 
-**Source**: `src/cli.rs`, `src/config.rs`, `src/pty.rs`, `src/headless.rs`, `src/runner.rs`, `src/main.rs`
+**Source**: `src/harness.rs`, `src/cli.rs`, `src/config.rs`, `src/pty.rs`, `src/headless.rs`, `src/runner.rs`, `src/main.rs`
 
 ---
 
 ## [Headless Mode](./headless-mode.md)
 
-Non-interactive execution, claude -p, pipe mode, --headless flag, stdin prompt, stream-json parsing, text_delta, automation, CI/CD, batch processing, no PTY, no terminal, no TUI, parallel integration, --dangerously-skip-permissions, clean context per iteration.
+Non-interactive execution, claude -p, pi -p, pipe mode, --headless flag, --harness flag, stdin prompt, stream-json parsing, text_delta, StreamJsonParser, PiStreamJsonParser, HarnessStreamParser trait, automation, CI/CD, batch processing, no PTY, no terminal, no TUI, parallel integration, --dangerously-skip-permissions, clean context per iteration, harness invocation.
 
-**Source**: `src/headless.rs` (to be created), `src/cli.rs` (--headless flag), `src/main.rs` (routing)
+**Source**: `src/headless.rs`, `src/harness.rs`, `src/cli.rs` (--headless, --harness), `src/main.rs` (routing + headless review)
 
 ---
 
